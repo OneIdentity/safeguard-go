@@ -51,6 +51,28 @@ var errEmptyHost = errors.New("safeguard: host must not be empty")
 // but no client certificate has been configured (populated in Phase 2/3).
 var errNoClientCert = errors.New("safeguard: no client certificate configured")
 
+// errNilCredential is returned when Connect is called without a credential.
+var errNilCredential = errors.New("safeguard: a credential is required to connect")
+
+// errEmptyToken is returned when Token is used with an empty user token.
+var errEmptyToken = errors.New("safeguard: user token must not be empty")
+
+// errPKCS12Unsupported is returned when Certificate is given PKCS#12 (.pfx)
+// material, which is not yet supported; supply PEM instead.
+var errPKCS12Unsupported = errors.New("safeguard: PKCS#12 certificate input is not yet supported; supply PEM material")
+
+// errNoCertificateInPEM is returned when certificate material contains no
+// CERTIFICATE block.
+var errNoCertificateInPEM = errors.New("safeguard: no certificate found in PEM material")
+
+// errNoPrivateKeyInPEM is returned when certificate material contains no private
+// key block.
+var errNoPrivateKeyInPEM = errors.New("safeguard: no private key found in PEM material")
+
+// errEncryptedKeyNoPassword is returned when an encrypted PEM private key is
+// supplied without a password to decrypt it.
+var errEncryptedKeyNoPassword = errors.New("safeguard: encrypted private key requires a password")
+
 // APIError is returned when a Safeguard API call completes with a non-2xx HTTP
 // status. It carries the HTTP status, the Safeguard error Code and Message when
 // the body was a recognizable Safeguard error object, and the appliance request

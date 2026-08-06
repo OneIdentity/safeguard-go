@@ -159,6 +159,22 @@ func (ts *transportSet) client(id tlsIdentity) (*http.Client, error) {
 	return c, nil
 }
 
+// setClientCerts installs the client certificates presented by the clientCert
+// transport (certificate login, A2A) and drops any already-built clientCert
+// pool so it is rebuilt with the new material on next use. It does not affect the
+// serverTrust pool.
+func (ts *transportSet) setClientCerts(certs []tls.Certificate) {
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	ts.clientCerts = certs
+	if c, ok := ts.clients[clientCert]; ok {
+		if tr, ok := c.Transport.(*http.Transport); ok {
+			tr.CloseIdleConnections()
+		}
+		delete(ts.clients, clientCert)
+	}
+}
+
 // do sends req on the transport for id and returns the response, wrapping
 // network/TLS failures in a TransportError with credentials redacted.
 func (ts *transportSet) do(id tlsIdentity, req *http.Request) (*http.Response, error) {

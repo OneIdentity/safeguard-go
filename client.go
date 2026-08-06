@@ -36,6 +36,11 @@ type Client struct {
 	transports *transportSet
 	logger     *slog.Logger
 
+	// credential is the strategy that established this client's session. It is
+	// retained so a refreshable credential can mint a fresh token; the refresh
+	// machinery that reads it lands in a later Phase 2 chunk.
+	credential Credential
+
 	token  atomic.Pointer[tokenState]
 	closed atomic.Bool
 }
@@ -69,13 +74,22 @@ func newClient(host string, opts ...Option) (*Client, error) {
 // within the current epoch. It is the internal seam that the concurrency tests
 // and (Phase 2) the login flows use to publish an exchanged token.
 func (c *Client) setUserToken(token Secret, expiry time.Time, refreshable bool) {
+	c.installSession(&session{token: token, expiry: expiry, refreshable: refreshable})
+}
+
+// installSession publishes s as the client's current session, bumping the
+// generation within the current epoch via CAS so concurrent installs and reads
+// stay race-free. It is the single seam through which Connect and the token
+// seam publish authentication state.
+func (c *Client) installSession(s *session) {
 	for {
 		prev := c.token.Load()
 		next := &tokenState{
 			epoch:       1,
-			token:       token,
-			expiry:      expiry,
-			refreshable: refreshable,
+			token:       s.token,
+			expiry:      s.expiry,
+			anonymous:   s.anonymous,
+			refreshable: s.refreshable,
 		}
 		if prev != nil {
 			next.epoch = prev.epoch
