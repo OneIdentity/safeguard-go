@@ -1,0 +1,5 @@
+variables:
+  - name: GoVersion
+    value: '1.21.x'
+  - name: isTagBuild
+    value: ${{ startsWith(variables['Build.SourceBranch'], 'refs/tags/') }}

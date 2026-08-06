@@ -1,0 +1,16 @@
+parameters:
+  goVersion: '$(GoVersion)'
+
+steps:
+- checkout: self
+  clean: true
+
+- task: GoTool@0
+  displayName: 'Use Go ${{ parameters.goVersion }}'
+  inputs:
+    version: '${{ parameters.goVersion }}'
+
+- script: |
+    go version
+    go env GOPATH GOMOD GOCACHE
+  displayName: 'Show Go environment'

@@ -1,0 +1,35 @@
+# Planning artifacts — kept untracked in the working directory by design
+/plan.md
+/plan-csi.md
+/plan*.md
+
+# Go build/test output
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+/coverage.*
+/dist/
+/bin/
+
+# Go workspace
+go.work
+go.work.sum
+
+# Editor/OS cruft
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Local env / secrets for integration tests (never commit)
+*.env
+.env
+.env.*
+*.pfx
+*.pem
+!testdata/**/*.pem

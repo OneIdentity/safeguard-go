@@ -1,0 +1,34 @@
+parameters:
+  jobName: GoValidation
+  displayName: 'Validate safeguard-go SDK'
+
+jobs:
+- job: ${{ parameters.jobName }}
+  displayName: ${{ parameters.displayName }}
+  pool:
+    vmImage: ubuntu-latest
+  steps:
+  - template: go-setup-steps.yml
+
+  - script: go build ./...
+    displayName: 'Build'
+
+  - script: |
+      files=`gofmt -l .`
+      if [ -n "$files" ]; then
+        echo "gofmt required for:"
+        echo "$files"
+        exit 1
+      fi
+    displayName: 'Check gofmt'
+
+  - script: go vet ./...
+    displayName: 'Vet'
+
+  - script: |
+      curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b "`go env GOPATH`/bin" v1.64.8
+      "`go env GOPATH`/bin/golangci-lint" run
+    displayName: 'Lint with golangci-lint'
+
+  - script: go test -race ./...
+    displayName: 'Run race-enabled unit tests'

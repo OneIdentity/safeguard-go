@@ -1,0 +1,18 @@
+run:
+  go: "1.21"
+  timeout: 5m
+
+linters:
+  enable:
+    - gofmt
+    - govet
+    - staticcheck
+    - errcheck
+    - ineffassign
+    - unused
+    - revive
+    - gosec
+    - misspell
+
+issues:
+  exclude-use-default: false

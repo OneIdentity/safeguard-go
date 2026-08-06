@@ -1,0 +1,51 @@
+variables:
+- template: pipeline-templates/global-variables.yml
+
+trigger:
+  branches:
+    include:
+    - main
+    - release-*
+  tags:
+    include:
+    - 'v*'
+  paths:
+    exclude:
+    - '**/*.md'
+    - LICENSE
+    - NOTICE
+    - docs/
+    - .github/CODEOWNERS
+
+pr:
+  branches:
+    include:
+    - main
+    - release-*
+  paths:
+    exclude:
+    - '**/*.md'
+    - LICENSE
+    - NOTICE
+    - docs/
+    - .github/CODEOWNERS
+
+stages:
+- stage: PRAndCI
+  displayName: 'PR/CI validation'
+  jobs:
+  - template: pipeline-templates/go-ci-job.yml
+    parameters:
+      jobName: GoValidation
+      displayName: 'Validate safeguard-go SDK'
+
+- stage: Integration
+  displayName: 'Live-appliance integration'
+  dependsOn: PRAndCI
+  # Never expose appliance secrets to fork PRs. This stage runs only for merges/tags.
+  condition: and(succeeded(), ne(variables['Build.Reason'], 'PullRequest'), or(eq(variables['Build.SourceBranch'], 'refs/heads/main'), startsWith(variables['Build.SourceBranch'], 'refs/heads/release-'), startsWith(variables['Build.SourceBranch'], 'refs/tags/')))
+  jobs:
+  - template: pipeline-templates/go-integration-job.yml
+    parameters:
+      jobName: Integration
+      displayName: 'Run SPP integration tests'

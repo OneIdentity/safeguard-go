@@ -1,0 +1,27 @@
+parameters:
+  jobName: Integration
+  displayName: 'Run SPP integration tests'
+
+jobs:
+- job: ${{ parameters.jobName }}
+  displayName: ${{ parameters.displayName }}
+  pool:
+    vmImage: ubuntu-latest
+  steps:
+  - template: go-setup-steps.yml
+
+  # TODO: Wire these variables from protected Azure Pipelines variable groups or Key Vault.
+  # They must never be available to fork PRs or printed in logs/artifacts.
+  - script: |
+      if [ -z "$SPP_HOST" ]; then
+        echo "SPP_HOST is not configured; skipping integration tests."
+        exit 0
+      fi
+      go test -race -tags=integration ./...
+    displayName: 'Run live-appliance integration tests'
+    env:
+      SPP_HOST: $(SPP_HOST)
+      SPP_BOOTSTRAP_USER: $(SPP_BOOTSTRAP_USER)
+      SPP_BOOTSTRAP_PASSWORD: $(SPP_BOOTSTRAP_PASSWORD)
+      SPP_CA_BUNDLE: $(SPP_CA_BUNDLE)
+      # TODO: Add SPP_A2A_* variables when A2A integration tests are implemented.

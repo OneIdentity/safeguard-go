@@ -1,0 +1,19 @@
+# Normalize line endings to LF across platforms (CI runs Linux + Windows).
+* text=auto eol=lf
+
+# Explicitly treat these as text with LF.
+*.go    text eol=lf
+*.mod   text eol=lf
+*.sum   text eol=lf
+*.md    text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+*.json  text eol=lf
+*.sh    text eol=lf
+
+# Binary assets — never normalize.
+*.pfx   binary
+*.png   binary
+*.jpg   binary
+*.gz    binary
+*.zip   binary
