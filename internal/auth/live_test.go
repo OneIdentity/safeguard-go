@@ -76,6 +76,42 @@ func TestLivePasswordLogin(t *testing.T) {
 	zero(token)
 }
 
+// TestLivePKCELogin runs the PKCE non-interactive (headless) login against the
+// appliance named by SPP_HOST. This is the authoritative automation flow because
+// it works even when the Resource Owner Grant is disabled. It is skipped when
+// SPP_HOST is unset and expects a non-MFA bootstrap account, so it fails (rather
+// than skips) if a secondary factor is required.
+func TestLivePKCELogin(t *testing.T) {
+	host := strings.TrimSpace(os.Getenv("SPP_HOST"))
+	if host == "" {
+		t.Skip("set SPP_HOST to run live auth tests")
+	}
+
+	username := envOr("SPP_USERNAME", "admin")
+	password := envOr("SPP_PASSWORD", "Admin123")
+	provider := strings.TrimSpace(os.Getenv("SPP_PROVIDER"))
+
+	client := liveHTTPClient(t, host)
+	cfg := Config{
+		Host:           host,
+		APIVersion:     "v4",
+		HTTPClient:     client,
+		CertHTTPClient: client,
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	token, err := LoginPKCE(ctx, cfg, provider, username, []byte(password), nil)
+	if err != nil {
+		t.Fatalf("LoginPKCE against %s: %v", host, err)
+	}
+	if len(token) == 0 {
+		t.Fatal("live PKCE login returned an empty user token")
+	}
+	zero(token)
+}
+
 // isROGDisabled reports whether err is the appliance rejecting the Resource
 // Owner Grant because that grant type is disabled. Such appliances are a
 // supported configuration (PKCE-headless is the intended automation flow), so

@@ -241,6 +241,119 @@ func TestConnectCertificate(t *testing.T) {
 	}
 }
 
+// pkceConnectHandler serves the RSTS form controller, the authorization-code
+// grant, and the Core LoginResponse for the root-level PKCE Connect test.
+type pkceConnectHandler struct {
+	t            *testing.T
+	requireMFA   bool
+	userToken    string
+	sawSecondary bool
+}
+
+func (h *pkceConnectHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	switch {
+	case strings.HasSuffix(r.URL.Path, "/RSTS/UserLogin/LoginController"):
+		switch r.URL.Query().Get("loginRequestStep") {
+		case "1":
+			_, _ = w.Write([]byte(`{"Message":"init"}`))
+		case "3":
+			if h.requireMFA {
+				_, _ = w.Write([]byte(`{"SecondaryProviderID":"radius"}`))
+				return
+			}
+			_, _ = w.Write([]byte(`{"SecondaryProviderID":""}`))
+		case "7":
+			_, _ = w.Write([]byte(`{"State":"st","Message":"code?"}`))
+		case "5":
+			h.sawSecondary = true
+			_, _ = w.Write([]byte(`{"Message":"ok"}`))
+		case "6":
+			_, _ = w.Write([]byte(`{"RelyingPartyUrl":"urn:InstalledApplication?code=abc"}`))
+		default:
+			h.t.Errorf("unexpected step %q", r.URL.Query().Get("loginRequestStep"))
+		}
+	case strings.HasSuffix(r.URL.Path, "/RSTS/oauth2/token"):
+		_, _ = w.Write([]byte(`{"access_token":"rsts-token"}`))
+	case strings.HasSuffix(r.URL.Path, "/Token/LoginResponse"):
+		token := h.userToken
+		if token == "" {
+			token = "user-token"
+		}
+		_, _ = w.Write([]byte(`{"Status":"Success","UserToken":"` + token + `"}`))
+	case strings.HasSuffix(r.URL.Path, "/Me"):
+		_, _ = w.Write([]byte(`{"Name":"admin"}`))
+	default:
+		h.t.Errorf("unexpected path %q", r.URL.Path)
+		w.WriteHeader(http.StatusNotFound)
+	}
+}
+
+func TestConnectPKCEHeadless(t *testing.T) {
+	h := &pkceConnectHandler{t: t, userToken: "pkce-token"}
+	srv := httptest.NewUnstartedServer(h)
+	srv.StartTLS()
+	t.Cleanup(srv.Close)
+
+	ctx := context.Background()
+	client, err := Connect(ctx, testHost(srv),
+		PKCEHeadless("", "admin", NewSecretString("Admin123")),
+		WithCABundle(testServerCertPEM(t, srv)),
+	)
+	if err != nil {
+		t.Fatalf("Connect PKCE: %v", err)
+	}
+	defer closeClient(t, client)
+
+	if _, err := client.Get(ctx, Core, "Me"); err != nil {
+		t.Fatalf("authenticated Get: %v", err)
+	}
+	// PKCE sessions are not refreshable.
+	if err := client.RefreshToken(ctx); !errors.Is(err, ErrNotRefreshable) {
+		t.Errorf("RefreshToken on PKCE credential = %v, want ErrNotRefreshable", err)
+	}
+}
+
+func TestConnectPKCESecondaryFactor(t *testing.T) {
+	h := &pkceConnectHandler{t: t, requireMFA: true, userToken: "mfa-token"}
+	srv := httptest.NewUnstartedServer(h)
+	srv.StartTLS()
+	t.Cleanup(srv.Close)
+
+	ctx := context.Background()
+	client, err := Connect(ctx, testHost(srv),
+		PKCEHeadless("", "admin", NewSecretString("Admin123"),
+			WithSecondaryFactor(func(_ context.Context, _ string) (Secret, error) {
+				return NewSecretString("123456"), nil
+			}),
+		),
+		WithCABundle(testServerCertPEM(t, srv)),
+	)
+	if err != nil {
+		t.Fatalf("Connect PKCE with MFA: %v", err)
+	}
+	defer closeClient(t, client)
+
+	if !h.sawSecondary {
+		t.Error("secondary authentication step was not exercised")
+	}
+}
+
+func TestConnectPKCESecondaryFactorMissing(t *testing.T) {
+	h := &pkceConnectHandler{t: t, requireMFA: true}
+	srv := httptest.NewUnstartedServer(h)
+	srv.StartTLS()
+	t.Cleanup(srv.Close)
+
+	_, err := Connect(context.Background(), testHost(srv),
+		PKCEHeadless("", "admin", NewSecretString("Admin123")),
+		WithCABundle(testServerCertPEM(t, srv)),
+	)
+	if !errors.Is(err, ErrSecondaryFactorRequired) {
+		t.Fatalf("Connect = %v, want ErrSecondaryFactorRequired", err)
+	}
+}
+
 func TestParseClientCertificateErrors(t *testing.T) {
 	t.Run("pkcs12 rejected", func(t *testing.T) {
 		_, err := parseClientCertificate([]byte{0x30, 0x82, 0x01, 0x02}, Secret{}, nil)

@@ -112,6 +112,62 @@ func Anonymous() Credential {
 	return anonymousCredential{}
 }
 
+// PKCEHeadless returns a credential that authenticates with the PKCE
+// non-interactive ("headless") OAuth flow: the SDK drives the appliance's RSTS
+// form controller directly, with no browser. An empty provider selects the
+// default local provider; a non-default provider may be given as its display
+// name, its RSTS provider id, or a unique substring of that id, and is resolved
+// against the appliance's authentication providers the same way SafeguardDotNet
+// and safeguard-ps resolve it. The resulting session is intentionally not
+// refreshable, matching the reference SDKs' treatment of OAuth authorization-code
+// flows, so RefreshToken reports ErrNotRefreshable and a 401 is surfaced rather
+// than silently retried. Supply WithSecondaryFactor to satisfy multi-factor
+// authentication. The password is copied into the credential; the caller retains
+// ownership of the supplied Secret.
+//
+// PKCEHeadless is the recommended flow for test automation because it does not
+// depend on the Resource Owner Grant, which appliances commonly disable.
+func PKCEHeadless(provider, username string, password Secret, opts ...PKCEOption) Credential {
+	cred := &pkceCredential{provider: provider, username: username, password: cloneSecret(password)}
+	for _, opt := range opts {
+		if opt != nil {
+			cred.opts = append(cred.opts, opt)
+		}
+	}
+	return cred
+}
+
+// PKCEOption configures a PKCE headless login.
+type PKCEOption func(*pkceConfig)
+
+// pkceConfig is the resolved PKCE configuration.
+type pkceConfig struct {
+	secondary SecondaryFactorFunc
+}
+
+// SecondaryFactorFunc supplies a multi-factor one-time code given the appliance's
+// prompt. It is invoked only when the primary login step reports that a secondary
+// factor is required. Returning an error aborts the login.
+type SecondaryFactorFunc func(ctx context.Context, prompt string) (Secret, error)
+
+// WithSecondaryFactor supplies the callback used to satisfy multi-factor
+// authentication during a PKCE headless login. Without it, a login that reaches a
+// secondary factor fails with ErrSecondaryFactorRequired.
+func WithSecondaryFactor(fn SecondaryFactorFunc) PKCEOption {
+	return func(pc *pkceConfig) {
+		pc.secondary = fn
+	}
+}
+
+// ErrSecondaryFactorRequired indicates a PKCE headless login reached a secondary
+// (multi-factor) authentication step but no secondary factor provider was
+// supplied. Provide WithSecondaryFactor. Compare with errors.Is.
+var ErrSecondaryFactorRequired = auth.ErrSecondaryFactorRequired
+
+// ErrSecondaryFactorFailed indicates the appliance rejected the supplied
+// secondary (multi-factor) authentication code. Compare with errors.Is.
+var ErrSecondaryFactorFailed = auth.ErrSecondaryFactorFailed
+
 // passwordCredential implements the Resource Owner Grant.
 type passwordCredential struct {
 	provider string
@@ -189,6 +245,46 @@ type anonymousCredential struct{}
 
 func (anonymousCredential) establish(_ context.Context, _ *Client) (*session, error) {
 	return &session{anonymous: true}, nil
+}
+
+// pkceCredential implements the PKCE non-interactive (headless) login.
+type pkceCredential struct {
+	provider string
+	username string
+	password Secret
+	opts     []PKCEOption
+}
+
+func (p *pkceCredential) establish(ctx context.Context, c *Client) (*session, error) {
+	cfg := &pkceConfig{}
+	for _, opt := range p.opts {
+		opt(cfg)
+	}
+
+	httpClient, err := c.transports.client(serverTrust)
+	if err != nil {
+		return nil, err
+	}
+	pw := p.password.Expose()
+	defer zeroBytes(pw)
+
+	var secondary auth.SecondaryFactorProvider
+	if cfg.secondary != nil {
+		secondary = func(ctx context.Context, prompt string) ([]byte, error) {
+			code, err := cfg.secondary(ctx, prompt)
+			if err != nil {
+				return nil, err
+			}
+			return code.Expose(), nil
+		}
+	}
+
+	token, err := auth.LoginPKCE(ctx, c.authConfig(httpClient, nil), p.provider, p.username, pw, secondary)
+	if err != nil {
+		return nil, translateAuthError(err)
+	}
+	defer zeroBytes(token)
+	return &session{token: NewSecret(token), refreshable: false}, nil
 }
 
 // authConfig builds the internal broker configuration for this client using the
@@ -343,8 +439,11 @@ func looksLikePKCS12(material []byte) bool {
 // translateAuthError maps an internal broker error onto the public error
 // hierarchy: an HTTP status becomes an APIError (and its 401/403/404
 // specializations), a transport failure becomes a TransportError, and the
-// login-response sentinels pass through for errors.Is.
+// login-response and multi-factor sentinels pass through for errors.Is.
 func translateAuthError(err error) error {
+	if errors.Is(err, auth.ErrSecondaryFactorRequired) || errors.Is(err, auth.ErrSecondaryFactorFailed) {
+		return err
+	}
 	var re *auth.RequestError
 	if errors.As(err, &re) {
 		switch {

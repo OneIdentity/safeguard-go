@@ -37,6 +37,15 @@ var ErrMissingToken = errors.New("safeguard/auth: authentication response contai
 // requires (for example certificate login with no CertHTTPClient).
 var errNilHTTPClient = errors.New("safeguard/auth: no HTTP transport provided for this login flow")
 
+// ErrSecondaryFactorRequired indicates a PKCE login reached a secondary
+// (multi-factor) authentication step but the caller supplied no secondary factor
+// provider. Compare with errors.Is.
+var ErrSecondaryFactorRequired = errors.New("safeguard/auth: multi-factor authentication is required but no secondary factor was provided")
+
+// ErrSecondaryFactorFailed indicates the appliance rejected the supplied
+// secondary (multi-factor) authentication code. Compare with errors.Is.
+var ErrSecondaryFactorFailed = errors.New("safeguard/auth: multi-factor authentication failed")
+
 // RequestError is returned when an authentication HTTP call fails, either
 // because the transport failed or because the appliance returned a non-success
 // status. The root package inspects StatusCode to map the failure onto its

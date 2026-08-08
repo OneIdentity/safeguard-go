@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -237,4 +238,58 @@ func liveContext(t *testing.T) (context.Context, context.CancelFunc) {
 	t.Helper()
 	requireLive(t)
 	return context.WithTimeout(context.Background(), 30*time.Second)
+}
+
+// TestLivePKCEConnect proves the full public Connect path with the PKCE headless
+// credential against the appliance named by SPP_HOST: it authenticates, calls an
+// authenticated endpoint, and confirms the session is not refreshable. This is
+// the authoritative automation entry point because it works when the Resource
+// Owner Grant is disabled. It is skipped when SPP_HOST is unset and expects a
+// non-MFA bootstrap account.
+func TestLivePKCEConnect(t *testing.T) {
+	host := liveHost(t)
+
+	username := envOr("SPP_USERNAME", "admin")
+	password := envOr("SPP_PASSWORD", "Admin123")
+	provider := strings.TrimSpace(os.Getenv("SPP_PROVIDER"))
+
+	opts := []Option{}
+	if caBundle := strings.TrimSpace(os.Getenv("SPP_CA_BUNDLE")); caBundle != "" {
+		// #nosec G304 -- live tests intentionally read the caller-provided CA bundle path.
+		pemBytes, err := os.ReadFile(caBundle)
+		if err != nil {
+			t.Fatalf("read SPP_CA_BUNDLE: %v", err)
+		}
+		opts = append(opts, WithCABundle(pemBytes))
+	} else if isTruthy(os.Getenv("SPP_INSECURE")) {
+		opts = append(opts, WithInsecureTLS())
+	} else {
+		opts = append(opts, WithCABundle(applianceCertPEM(t, host)))
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	client, err := Connect(ctx, host,
+		PKCEHeadless(provider, username, NewSecretString(password)),
+		opts...,
+	)
+	if err != nil {
+		t.Fatalf("Connect PKCE against %s: %v", host, err)
+	}
+	defer closeClient(t, client)
+
+	if _, err := client.Get(ctx, Core, "Me"); err != nil {
+		t.Fatalf("authenticated Get Me: %v", err)
+	}
+	if err := client.RefreshToken(ctx); !errors.Is(err, ErrNotRefreshable) {
+		t.Errorf("RefreshToken on PKCE session = %v, want ErrNotRefreshable", err)
+	}
+}
+
+func envOr(key, fallback string) string {
+	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
+		return v
+	}
+	return fallback
 }

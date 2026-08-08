@@ -55,33 +55,58 @@ func resolveScope(ctx context.Context, cfg Config, httpClient HTTPClient, provid
 		// explicit provider id.
 		return scopeFor(providerID), nil
 	}
-	if scope, ok := matchProvider(providers, providerID); ok {
-		return scope, nil
+	if p, ok := matchProvider(providers, providerID); ok {
+		return p.RstsProviderScope, nil
 	}
 	return scopeFor(providerID), nil
 }
 
-// matchProvider selects a provider scope for id using the reference match order:
-// exact RstsProviderId, then exact Name, then a substring of RstsProviderId, all
-// case-insensitive.
-func matchProvider(providers []provider, id string) (string, bool) {
+// resolveProviderID maps a caller-supplied provider identifier to the
+// RstsProviderId value expected by the RSTS form controller's directoryComboBox
+// field. An empty provider yields defaultProviderID without a lookup (the local
+// provider's id is well known, and this keeps the common bootstrap path
+// network-free). A non-empty provider is matched against the appliance's
+// authentication providers using the same order as the reference SDKs; if the
+// lookup fails or nothing matches, the identifier is used as-is, matching the
+// PySafeguard and safeguard-ps fallback.
+func resolveProviderID(ctx context.Context, cfg Config, httpClient HTTPClient, providerID, defaultProviderID string) string {
+	providerID = strings.TrimSpace(providerID)
+	if providerID == "" {
+		return defaultProviderID
+	}
+
+	providers, err := listProviders(ctx, cfg, httpClient)
+	if err != nil {
+		return providerID
+	}
+	if p, ok := matchProvider(providers, providerID); ok {
+		return p.RstsProviderID
+	}
+	return providerID
+}
+
+// matchProvider selects the provider entry for id using the reference match
+// order: exact RstsProviderId, then exact Name, then a substring of
+// RstsProviderId, all case-insensitive. Callers pick the field they need
+// (RstsProviderScope for a grant, RstsProviderId for the form combo box).
+func matchProvider(providers []provider, id string) (provider, bool) {
 	for _, p := range providers {
 		if strings.EqualFold(p.RstsProviderID, id) {
-			return p.RstsProviderScope, true
+			return p, true
 		}
 	}
 	for _, p := range providers {
 		if strings.EqualFold(p.Name, id) {
-			return p.RstsProviderScope, true
+			return p, true
 		}
 	}
 	lower := strings.ToLower(id)
 	for _, p := range providers {
 		if strings.Contains(strings.ToLower(p.RstsProviderID), lower) {
-			return p.RstsProviderScope, true
+			return p, true
 		}
 	}
-	return "", false
+	return provider{}, false
 }
 
 // scopeFor builds the RSTS primary-provider scope string for a provider id.
