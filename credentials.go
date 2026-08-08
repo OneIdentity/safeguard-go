@@ -53,15 +53,17 @@ func UsernamePassword(provider, username string, password Secret) Credential {
 }
 
 // Certificate returns a credential that authenticates with a client certificate
-// over mutual TLS. pfxOrPem is a concatenated PEM byte slice carrying the leaf
+// over mutual TLS. certPEM is a concatenated PEM byte slice carrying the leaf
 // certificate, any intermediate chain, and the private key; supply the key
 // separately with WithPrivateKeyPEM when it lives in its own PEM input. password
-// decrypts an encrypted PEM private key (and, once supported, a PKCS#12 blob).
-// The certificate material is parsed and validated at Connect time, so a bad
-// certificate or password surfaces as a Connect error rather than a panic. The
-// resulting session is refreshable.
-func Certificate(pfxOrPem []byte, password Secret, opts ...CertOption) Credential {
-	cred := &certificateCredential{material: append([]byte(nil), pfxOrPem...), password: cloneSecret(password)}
+// decrypts an encrypted PEM private key. Like PySafeguard, this SDK accepts PEM
+// material only: PKCS#12 (.pfx/.p12) input is rejected with a clear error, so
+// convert it first (for example, `openssl pkcs12 -in cert.pfx -nodes -out
+// cert.pem`). The certificate material is parsed and validated at Connect time,
+// so a bad certificate or password surfaces as a Connect error rather than a
+// panic. The resulting session is refreshable.
+func Certificate(certPEM []byte, password Secret, opts ...CertOption) Credential {
+	cred := &certificateCredential{material: append([]byte(nil), certPEM...), password: cloneSecret(password)}
 	for _, opt := range opts {
 		if opt != nil {
 			cred.opts = append(cred.opts, opt)
@@ -300,8 +302,8 @@ func (c *Client) authConfig(serverHTTPClient, certHTTPClient auth.HTTPClient) au
 
 // parseClientCertificate builds a tls.Certificate from PEM material. The private
 // key may be concatenated with the certificate in certPEM or supplied separately
-// in keyPEM. An encrypted PEM key is decrypted with password. PKCS#12 input is
-// not yet supported.
+// in keyPEM. An encrypted PEM key is decrypted with password. PKCS#12 (.pfx/.p12)
+// input is rejected with errPKCS12Unsupported; convert it to PEM first.
 func parseClientCertificate(certPEM []byte, password Secret, keyPEM []byte) (tls.Certificate, error) {
 	if looksLikePKCS12(certPEM) {
 		return tls.Certificate{}, errPKCS12Unsupported

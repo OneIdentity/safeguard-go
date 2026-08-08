@@ -57,9 +57,11 @@ var errNilCredential = errors.New("safeguard: a credential is required to connec
 // errEmptyToken is returned when Token is used with an empty user token.
 var errEmptyToken = errors.New("safeguard: user token must not be empty")
 
-// errPKCS12Unsupported is returned when Certificate is given PKCS#12 (.pfx)
-// material, which is not yet supported; supply PEM instead.
-var errPKCS12Unsupported = errors.New("safeguard: PKCS#12 certificate input is not yet supported; supply PEM material")
+// errPKCS12Unsupported is returned when Certificate is given PKCS#12 (.pfx/.p12)
+// material. Like PySafeguard, this SDK takes PEM certificate material only;
+// convert a PKCS#12 file with, for example,
+// `openssl pkcs12 -in cert.pfx -nodes -out cert.pem` and pass the PEM bytes.
+var errPKCS12Unsupported = errors.New("safeguard: PKCS#12 (.pfx/.p12) certificate input is not supported; convert to PEM (e.g. `openssl pkcs12 -in cert.pfx -nodes -out cert.pem`) and supply the PEM material")
 
 // errNoCertificateInPEM is returned when certificate material contains no
 // CERTIFICATE block.
