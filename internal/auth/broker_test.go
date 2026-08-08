@@ -138,17 +138,17 @@ func (f *fakeAppliance) serveLogin(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]string{"Status": respStatus, "UserToken": token})
 }
 
-// newFakeConfig starts a TLS test server for f and returns a Config whose Doer
-// and CertDoer both trust it.
+// newFakeConfig starts a TLS test server for f and returns a Config whose HTTPClient
+// and CertHTTPClient both trust it.
 func newFakeConfig(t *testing.T, f *fakeAppliance) (Config, func()) {
 	t.Helper()
 	srv := httptest.NewTLSServer(f.handler())
 	client := srv.Client()
 	cfg := Config{
-		Host:       strings.TrimPrefix(srv.URL, "https://"),
-		APIVersion: "v4",
-		Doer:       client,
-		CertDoer:   client,
+		Host:           strings.TrimPrefix(srv.URL, "https://"),
+		APIVersion:     "v4",
+		HTTPClient:     client,
+		CertHTTPClient: client,
 	}
 	return cfg, srv.Close
 }
@@ -205,15 +205,15 @@ func TestLoginCertificateDefaultScope(t *testing.T) {
 	}
 }
 
-func TestLoginCertificateRequiresCertDoer(t *testing.T) {
+func TestLoginCertificateRequiresCertHTTPClient(t *testing.T) {
 	f := &fakeAppliance{t: t}
 	cfg, done := newFakeConfig(t, f)
 	defer done()
-	cfg.CertDoer = nil
+	cfg.CertHTTPClient = nil
 
 	_, err := LoginCertificate(context.Background(), cfg, "")
 	if err == nil {
-		t.Fatal("expected error when CertDoer is nil")
+		t.Fatal("expected error when CertHTTPClient is nil")
 	}
 }
 

@@ -37,17 +37,17 @@ type provider struct {
 // found the identifier is used to build the scope directly, matching the
 // behavior of the reference SDKs.
 func ResolveProviderScope(ctx context.Context, cfg Config, provider, defaultProviderID string) (string, error) {
-	return resolveScope(ensureCtx(ctx), cfg, cfg.Doer, provider, defaultProviderID)
+	return resolveScope(ensureCtx(ctx), cfg, cfg.HTTPClient, provider, defaultProviderID)
 }
 
 // resolveScope implements ResolveProviderScope over an explicit transport.
-func resolveScope(ctx context.Context, cfg Config, doer Doer, providerID, defaultProviderID string) (string, error) {
+func resolveScope(ctx context.Context, cfg Config, httpClient HTTPClient, providerID, defaultProviderID string) (string, error) {
 	providerID = strings.TrimSpace(providerID)
 	if providerID == "" {
 		return scopeFor(defaultProviderID), nil
 	}
 
-	providers, err := listProviders(ctx, cfg, doer)
+	providers, err := listProviders(ctx, cfg, httpClient)
 	if err != nil {
 		// The reference SDKs tolerate a failed provider lookup and fall back to
 		// treating the caller's identifier as the scope seed. Preserve that so a
@@ -90,9 +90,9 @@ func scopeFor(providerID string) string {
 }
 
 // listProviders fetches the anonymous AuthenticationProviders list from Core.
-func listProviders(ctx context.Context, cfg Config, doer Doer) ([]provider, error) {
-	if doer == nil {
-		return nil, errNilDoer
+func listProviders(ctx context.Context, cfg Config, httpClient HTTPClient) ([]provider, error) {
+	if httpClient == nil {
+		return nil, errNilHTTPClient
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, cfg.coreURL(providersPath), nil)
 	if err != nil {
@@ -100,7 +100,7 @@ func listProviders(ctx context.Context, cfg Config, doer Doer) ([]provider, erro
 	}
 	req.Header.Set("Accept", "application/json")
 
-	resp, err := doer.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, &RequestError{Op: "provider lookup", Err: err}
 	}

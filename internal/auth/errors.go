@@ -33,9 +33,9 @@ var ErrLoginResponseFailed = errors.New("safeguard/auth: login response was not 
 // where one was expected.
 var ErrMissingToken = errors.New("safeguard/auth: authentication response contained no token")
 
-// errNilDoer indicates the caller passed a Config without the transport a flow
-// requires (for example certificate login with no CertDoer).
-var errNilDoer = errors.New("safeguard/auth: no HTTP transport provided for this login flow")
+// errNilHTTPClient indicates the caller passed a Config without the transport a flow
+// requires (for example certificate login with no CertHTTPClient).
+var errNilHTTPClient = errors.New("safeguard/auth: no HTTP transport provided for this login flow")
 
 // RequestError is returned when an authentication HTTP call fails, either
 // because the transport failed or because the appliance returned a non-success

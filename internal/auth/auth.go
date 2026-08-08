@@ -19,7 +19,7 @@
 // This package imports neither the root safeguard package nor the browser and
 // devicecode add-on packages, so there is no import cycle: the root package and
 // the add-ons call in with a host, an API version, and ready-built HTTP
-// transports (as Doer values), and receive a user token out. It knows the RSTS
+// transports (as HTTPClient values), and receive a user token out. It knows the RSTS
 // and Core wire protocol; it knows nothing about the public Client, Secret, or
 // Option types.
 package auth
@@ -31,17 +31,17 @@ import (
 	"strings"
 )
 
-// Doer performs HTTP requests. The root package satisfies it with an *http.Client
+// HTTPClient performs HTTP requests. The root package satisfies it with an *http.Client
 // bound to a particular TLS identity (server-trust for password and PKCE flows,
 // a client-certificate transport for certificate login), so the broker never
 // builds transports or decides TLS policy itself.
-type Doer interface {
+type HTTPClient interface {
 	Do(req *http.Request) (*http.Response, error)
 }
 
-// Config carries everything a login flow needs from the caller. Doer is the
+// Config carries everything a login flow needs from the caller. HTTPClient is the
 // server-trust transport used by password, PKCE, and token-exchange calls;
-// CertDoer is the client-certificate transport used by certificate login and is
+// CertHTTPClient is the client-certificate transport used by certificate login and is
 // required only for LoginCertificate.
 type Config struct {
 	// Host is the appliance host. It may include a scheme; https is assumed when
@@ -49,11 +49,11 @@ type Config struct {
 	Host string
 	// APIVersion is the Core API version segment, for example "v4".
 	APIVersion string
-	// Doer is the server-trust HTTP transport. It must not be nil.
-	Doer Doer
-	// CertDoer is the client-certificate HTTP transport, required only for
+	// HTTPClient is the server-trust HTTP transport. It must not be nil.
+	HTTPClient HTTPClient
+	// CertHTTPClient is the client-certificate HTTP transport, required only for
 	// certificate login.
-	CertDoer Doer
+	CertHTTPClient HTTPClient
 }
 
 // schemeHost splits a possibly scheme-prefixed host into its scheme (including

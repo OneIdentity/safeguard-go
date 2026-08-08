@@ -120,14 +120,14 @@ type passwordCredential struct {
 }
 
 func (p *passwordCredential) establish(ctx context.Context, c *Client) (*session, error) {
-	doer, err := c.transports.client(serverTrust)
+	httpClient, err := c.transports.client(serverTrust)
 	if err != nil {
 		return nil, err
 	}
 	pw := p.password.Expose()
 	defer zeroBytes(pw)
 
-	token, err := auth.LoginPassword(ctx, c.authConfig(doer, nil), p.provider, p.username, pw)
+	token, err := auth.LoginPassword(ctx, c.authConfig(httpClient, nil), p.provider, p.username, pw)
 	if err != nil {
 		return nil, translateAuthError(err)
 	}
@@ -155,16 +155,16 @@ func (cc *certificateCredential) establish(ctx context.Context, c *Client) (*ses
 	}
 
 	c.transports.setClientCerts([]tls.Certificate{cert})
-	serverDoer, err := c.transports.client(serverTrust)
+	serverHTTPClient, err := c.transports.client(serverTrust)
 	if err != nil {
 		return nil, err
 	}
-	certDoer, err := c.transports.client(clientCert)
+	certHTTPClient, err := c.transports.client(clientCert)
 	if err != nil {
 		return nil, err
 	}
 
-	token, err := auth.LoginCertificate(ctx, c.authConfig(serverDoer, certDoer), cfg.provider)
+	token, err := auth.LoginCertificate(ctx, c.authConfig(serverHTTPClient, certHTTPClient), cfg.provider)
 	if err != nil {
 		return nil, translateAuthError(err)
 	}
@@ -193,12 +193,12 @@ func (anonymousCredential) establish(_ context.Context, _ *Client) (*session, er
 
 // authConfig builds the internal broker configuration for this client using the
 // given server-trust and (optional) client-certificate transports.
-func (c *Client) authConfig(serverDoer, certDoer auth.Doer) auth.Config {
+func (c *Client) authConfig(serverHTTPClient, certHTTPClient auth.HTTPClient) auth.Config {
 	return auth.Config{
-		Host:       c.host,
-		APIVersion: c.apiVersion,
-		Doer:       serverDoer,
-		CertDoer:   certDoer,
+		Host:           c.host,
+		APIVersion:     c.apiVersion,
+		HTTPClient:     serverHTTPClient,
+		CertHTTPClient: certHTTPClient,
 	}
 }
 

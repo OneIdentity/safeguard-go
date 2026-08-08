@@ -54,10 +54,10 @@ func TestLivePasswordLogin(t *testing.T) {
 
 	client := liveHTTPClient(t, host)
 	cfg := Config{
-		Host:       host,
-		APIVersion: "v4",
-		Doer:       client,
-		CertDoer:   client,
+		Host:           host,
+		APIVersion:     "v4",
+		HTTPClient:     client,
+		CertHTTPClient: client,
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

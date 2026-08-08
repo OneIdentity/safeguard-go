@@ -60,11 +60,11 @@ type clientCredentialsGrant struct {
 // provider is resolved to its RSTS scope.
 func LoginPassword(ctx context.Context, cfg Config, provider, username string, password []byte) ([]byte, error) {
 	ctx = ensureCtx(ctx)
-	scope, err := resolveScope(ctx, cfg, cfg.Doer, provider, "local")
+	scope, err := resolveScope(ctx, cfg, cfg.HTTPClient, provider, "local")
 	if err != nil {
 		return nil, err
 	}
-	rstsToken, err := postRSTSGrant(ctx, cfg, cfg.Doer, passwordGrant{
+	rstsToken, err := postRSTSGrant(ctx, cfg, cfg.HTTPClient, passwordGrant{
 		GrantType: "password",
 		Username:  username,
 		Password:  string(password),
@@ -74,7 +74,7 @@ func LoginPassword(ctx context.Context, cfg Config, provider, username string, p
 		return nil, err
 	}
 	defer zero(rstsToken)
-	return exchangeRSTSToken(ctx, cfg, cfg.Doer, rstsToken)
+	return exchangeRSTSToken(ctx, cfg, cfg.HTTPClient, rstsToken)
 }
 
 // LoginCertificate performs a certificate (client-credentials) login over the
@@ -82,12 +82,12 @@ func LoginPassword(ctx context.Context, cfg Config, provider, username string, p
 // provider defaults to the certificate scope.
 func LoginCertificate(ctx context.Context, cfg Config, provider string) ([]byte, error) {
 	ctx = ensureCtx(ctx)
-	doer := cfg.CertDoer
-	scope, err := resolveScope(ctx, cfg, doer, provider, "certificate")
+	httpClient := cfg.CertHTTPClient
+	scope, err := resolveScope(ctx, cfg, httpClient, provider, "certificate")
 	if err != nil {
 		return nil, err
 	}
-	rstsToken, err := postRSTSGrant(ctx, cfg, doer, clientCredentialsGrant{
+	rstsToken, err := postRSTSGrant(ctx, cfg, httpClient, clientCredentialsGrant{
 		GrantType: "client_credentials",
 		Scope:     scope,
 	})
@@ -95,7 +95,7 @@ func LoginCertificate(ctx context.Context, cfg Config, provider string) ([]byte,
 		return nil, err
 	}
 	defer zero(rstsToken)
-	return exchangeRSTSToken(ctx, cfg, doer, rstsToken)
+	return exchangeRSTSToken(ctx, cfg, httpClient, rstsToken)
 }
 
 // ExchangeRSTSToken exchanges an already-obtained RSTS access token for a
@@ -103,12 +103,12 @@ func LoginCertificate(ctx context.Context, cfg Config, provider string) ([]byte,
 // interactive add-on flows (browser, device code) after they obtain an RSTS
 // token through OAuth.
 func ExchangeRSTSToken(ctx context.Context, cfg Config, rstsToken []byte) ([]byte, error) {
-	return exchangeRSTSToken(ensureCtx(ctx), cfg, cfg.Doer, rstsToken)
+	return exchangeRSTSToken(ensureCtx(ctx), cfg, cfg.HTTPClient, rstsToken)
 }
 
 // postRSTSGrant posts an RSTS grant body and returns the access_token bytes.
-func postRSTSGrant(ctx context.Context, cfg Config, doer Doer, grant any) ([]byte, error) {
-	status, body, err := postJSON(ctx, doer, cfg.rstsURL(rstsGrantPath), grant)
+func postRSTSGrant(ctx context.Context, cfg Config, httpClient HTTPClient, grant any) ([]byte, error) {
+	status, body, err := postJSON(ctx, httpClient, cfg.rstsURL(rstsGrantPath), grant)
 	if err != nil {
 		return nil, &RequestError{Op: "rsts grant", Err: err}
 	}
@@ -124,14 +124,14 @@ func postRSTSGrant(ctx context.Context, cfg Config, doer Doer, grant any) ([]byt
 	return []byte(parsed.AccessToken), nil
 }
 
-// exchangeRSTSToken performs the Core Token/LoginResponse exchange over doer and
+// exchangeRSTSToken performs the Core Token/LoginResponse exchange over httpClient and
 // returns the Safeguard user token.
-func exchangeRSTSToken(ctx context.Context, cfg Config, doer Doer, rstsToken []byte) ([]byte, error) {
+func exchangeRSTSToken(ctx context.Context, cfg Config, httpClient HTTPClient, rstsToken []byte) ([]byte, error) {
 	payload := struct {
 		StsAccessToken string `json:"StsAccessToken"`
 	}{StsAccessToken: string(rstsToken)}
 
-	status, body, err := postJSON(ctx, doer, cfg.coreURL(loginResponsePath), payload)
+	status, body, err := postJSON(ctx, httpClient, cfg.coreURL(loginResponsePath), payload)
 	if err != nil {
 		return nil, &RequestError{Op: "login response", Err: err}
 	}
@@ -154,13 +154,13 @@ func exchangeRSTSToken(ctx context.Context, cfg Config, doer Doer, rstsToken []b
 	return []byte(parsed.UserToken), nil
 }
 
-// postJSON marshals payload as JSON, POSTs it to url through doer, and returns
+// postJSON marshals payload as JSON, POSTs it to url through httpClient, and returns
 // the status code and the bounded response body. Authentication calls never
 // carry an Authorization header: RSTS grants are unauthenticated and certificate
 // login authenticates through the mutual-TLS transport.
-func postJSON(ctx context.Context, doer Doer, url string, payload any) (int, []byte, error) {
-	if doer == nil {
-		return 0, nil, errNilDoer
+func postJSON(ctx context.Context, httpClient HTTPClient, url string, payload any) (int, []byte, error) {
+	if httpClient == nil {
+		return 0, nil, errNilHTTPClient
 	}
 	data, err := json.Marshal(payload)
 	if err != nil {
@@ -173,7 +173,7 @@ func postJSON(ctx context.Context, doer Doer, url string, payload any) (int, []b
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 
-	resp, err := doer.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return 0, nil, err
 	}
