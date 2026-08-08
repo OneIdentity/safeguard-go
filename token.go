@@ -16,6 +16,8 @@ package safeguard
 
 import (
 	"context"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -44,12 +46,12 @@ type tokenState struct {
 }
 
 // TokenLifetimeRemaining reports the remaining lifetime of the current user
-// token from cached expiry. It does not call the appliance per request. It
-// returns ErrNotAuthenticated for an anonymous or absent session, and zero with
-// no error when the expiry is unknown.
-//
-// Phase 2 augments this to consult the appliance lifetime endpoint when needed.
-func (c *Client) TokenLifetimeRemaining(_ context.Context) (time.Duration, error) {
+// token. When the client has a cached expiry it is returned without a network
+// call; otherwise the appliance is consulted once via the Core LoginMessage
+// endpoint, whose X-TokenLifetimeRemaining header carries the remaining minutes.
+// It returns ErrNotAuthenticated for an anonymous or absent session, and zero
+// with no error when the lifetime cannot be determined.
+func (c *Client) TokenLifetimeRemaining(ctx context.Context) (time.Duration, error) {
 	if c.isClosed() {
 		return 0, ErrClosed
 	}
@@ -57,30 +59,63 @@ func (c *Client) TokenLifetimeRemaining(_ context.Context) (time.Duration, error
 	if ts == nil || ts.anonymous || ts.token.IsZero() {
 		return 0, ErrNotAuthenticated
 	}
-	if ts.expiry.IsZero() {
+	if !ts.expiry.IsZero() {
+		if d := time.Until(ts.expiry); d > 0 {
+			return d, nil
+		}
 		return 0, nil
 	}
-	if d := time.Until(ts.expiry); d > 0 {
-		return d, nil
+	if ctx == nil {
+		ctx = context.Background()
 	}
-	return 0, nil
+	return c.queryTokenLifetime(ctx)
 }
 
-// RefreshToken exchanges the current credential for a fresh user token.
-//
-// Phase 1 provides only the shell: it validates session state and reports
-// ErrNotRefreshable, because minting a token requires the authentication flows
-// implemented in Phase 2. Phase 2 replaces this body with the single-flight,
-// epoch-scoped refresh described in the plan.
-func (c *Client) RefreshToken(_ context.Context) error {
+// tokenLifetimeHeader is the response header, in minutes, that Safeguard uses to
+// report a user token's remaining lifetime on an authenticated response.
+const tokenLifetimeHeader = "X-TokenLifetimeRemaining"
+
+// queryTokenLifetime consults the appliance for the current token's remaining
+// lifetime by reading the X-TokenLifetimeRemaining header off an authenticated
+// Core LoginMessage request. A missing or unparseable header yields zero with no
+// error.
+func (c *Client) queryTokenLifetime(ctx context.Context) (time.Duration, error) {
+	full, err := c.Get(ctx, Core, "LoginMessage")
+	if err != nil {
+		return 0, err
+	}
+	raw := strings.TrimSpace(full.Headers.Get(tokenLifetimeHeader))
+	if raw == "" {
+		return 0, nil
+	}
+	minutes, err := strconv.Atoi(raw)
+	if err != nil || minutes < 0 {
+		return 0, nil
+	}
+	return time.Duration(minutes) * time.Minute, nil
+}
+
+// RefreshToken exchanges the current credential for a fresh user token by
+// re-running the full login exchange (single flight: concurrent callers share one
+// refresh). It reports ErrNotAuthenticated for an anonymous or absent session and
+// ErrNotRefreshable when the credential cannot mint a replacement token (a bare
+// user token, or an OAuth authorization-code flow such as PKCE, browser, or
+// device code).
+func (c *Client) RefreshToken(ctx context.Context) error {
 	if c.isClosed() {
 		return ErrClosed
 	}
 	ts := c.token.Load()
-	if ts == nil || ts.anonymous {
+	if ts == nil || ts.anonymous || ts.token.IsZero() {
 		return ErrNotAuthenticated
 	}
-	return ErrNotRefreshable
+	if !ts.refreshable {
+		return ErrNotRefreshable
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return c.refreshOnce(ctx, ts.epoch, ts.generation)
 }
 
 // currentAuthorization returns the authorization axis value for a standard

@@ -133,15 +133,6 @@ func TestTokenLifetimeRemaining(t *testing.T) {
 	if remaining <= 0 {
 		t.Fatalf("remaining = %v, want positive", remaining)
 	}
-
-	client.setUserToken(NewSecretString("token"), time.Time{}, false)
-	remaining, err = client.TokenLifetimeRemaining(context.Background())
-	if err != nil {
-		t.Fatalf("TokenLifetimeRemaining zero expiry: %v", err)
-	}
-	if remaining != 0 {
-		t.Fatalf("remaining zero expiry = %v, want 0", remaining)
-	}
 }
 
 func TestRefreshToken(t *testing.T) {

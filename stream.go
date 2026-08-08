@@ -17,6 +17,7 @@ package safeguard
 import (
 	"context"
 	"io"
+	"net/http"
 )
 
 // Stream performs a request and returns the response body as an io.ReadCloser
@@ -33,15 +34,14 @@ func (c *Client) Stream(ctx context.Context, m HTTPMethod, s Service, relURL str
 	if err != nil {
 		return nil, FullResponse{}, err
 	}
-	reader, contentType, err := encodeBody(body)
-	if err != nil {
-		return nil, FullResponse{}, err
+	newReq := func() (*http.Request, error) {
+		reader, contentType, err := encodeBody(body)
+		if err != nil {
+			return nil, err
+		}
+		return c.prepareRequest(ctx, m, s, relURL, reader, contentType, rc)
 	}
-	req, err := c.prepareRequest(ctx, m, s, relURL, reader, contentType, rc)
-	if err != nil {
-		return nil, FullResponse{}, err
-	}
-	resp, err := c.transports.do(serverTrust, req)
+	resp, err := c.send(ctx, serverTrust, newReq, bodyReplayable(body))
 	if err != nil {
 		return nil, FullResponse{}, err
 	}
@@ -75,11 +75,10 @@ func (c *Client) Upload(ctx context.Context, s Service, relURL string, r io.Read
 		ctx, cancel = context.WithTimeout(ctx, rc.timeout)
 		defer cancel()
 	}
-	req, err := c.prepareRequest(ctx, MethodPost, s, relURL, r, "application/octet-stream", rc)
-	if err != nil {
-		return FullResponse{}, err
+	newReq := func() (*http.Request, error) {
+		return c.prepareRequest(ctx, MethodPost, s, relURL, r, "application/octet-stream", rc)
 	}
-	resp, err := c.transports.do(serverTrust, req)
+	resp, err := c.send(ctx, serverTrust, newReq, false)
 	if err != nil {
 		return FullResponse{}, err
 	}
@@ -117,11 +116,10 @@ func (c *Client) Download(ctx context.Context, s Service, relURL string, w io.Wr
 	if rc.accept == "" {
 		rc.accept = "application/octet-stream"
 	}
-	req, err := c.prepareRequest(ctx, MethodGet, s, relURL, nil, "", rc)
-	if err != nil {
-		return FullResponse{}, err
+	newReq := func() (*http.Request, error) {
+		return c.prepareRequest(ctx, MethodGet, s, relURL, nil, "", rc)
 	}
-	resp, err := c.transports.do(serverTrust, req)
+	resp, err := c.send(ctx, serverTrust, newReq, true)
 	if err != nil {
 		return FullResponse{}, err
 	}

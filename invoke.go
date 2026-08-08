@@ -54,20 +54,19 @@ func (c *Client) Invoke(ctx context.Context, m HTTPMethod, s Service, relURL str
 	if err != nil {
 		return FullResponse{}, err
 	}
-	reader, contentType, err := encodeBody(body)
-	if err != nil {
-		return FullResponse{}, err
-	}
 	if rc.timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, rc.timeout)
 		defer cancel()
 	}
-	req, err := c.prepareRequest(ctx, m, s, relURL, reader, contentType, rc)
-	if err != nil {
-		return FullResponse{}, err
+	newReq := func() (*http.Request, error) {
+		reader, contentType, err := encodeBody(body)
+		if err != nil {
+			return nil, err
+		}
+		return c.prepareRequest(ctx, m, s, relURL, reader, contentType, rc)
 	}
-	resp, err := c.transports.do(serverTrust, req)
+	resp, err := c.send(ctx, serverTrust, newReq, bodyReplayable(body))
 	if err != nil {
 		return FullResponse{}, err
 	}

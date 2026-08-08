@@ -41,6 +41,10 @@ type Client struct {
 	// machinery that reads it lands in a later Phase 2 chunk.
 	credential Credential
 
+	// refresh serializes token refreshes so concurrent callers that observe the
+	// same stale token trigger exactly one re-authentication.
+	refresh refreshCoordinator
+
 	token  atomic.Pointer[tokenState]
 	closed atomic.Bool
 }
@@ -110,29 +114,64 @@ func (c *Client) APIVersion() string { return c.apiVersion }
 // isClosed reports whether the client has been closed.
 func (c *Client) isClosed() bool { return c.closed.Load() }
 
-// Logout ends this client's session. Phase 1 clears the local session state; a
-// reconnect means creating a new client (Phase 2 adds appliance-side revocation
-// and stops persistent listeners). Logout is idempotent.
-func (c *Client) Logout(_ context.Context) error {
+// Logout ends this client's session. It makes a best-effort appliance-side
+// Token/Logout call to revoke the user token, then clears the local session and
+// invalidates its epoch so an in-flight refresh cannot resurrect it. A failure of
+// the appliance call is ignored: the local session is cleared regardless. Logout
+// is idempotent and is a no-op for an anonymous session.
+func (c *Client) Logout(ctx context.Context) error {
 	if c.isClosed() {
 		return ErrClosed
 	}
-	if prev := c.token.Load(); prev != nil {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if prev := c.token.Load(); prev != nil && !prev.anonymous && !prev.token.IsZero() {
+		c.applianceLogout(ctx, prev.token)
+	}
+	// Swap in a terminal epoch and zero whatever token it displaces. Using Swap
+	// (rather than Load then Store) means a token installed by a refresh that
+	// raced this logout is still zeroed, and doRefresh's CAS on the observed
+	// (epoch, generation) can never resurrect the session because epoch 0 never
+	// matches.
+	if prev := c.token.Swap(&tokenState{epoch: 0, anonymous: true}); prev != nil {
 		s := prev.token
 		(&s).Zero()
 	}
-	c.token.Store(&tokenState{epoch: 0, anonymous: true})
 	return nil
 }
 
+// applianceLogout performs the best-effort Core Token/Logout call that revokes a
+// user token appliance-side. It builds the request with the supplied token
+// directly (the client's session may be cleared concurrently) and ignores every
+// outcome; it never replays or refreshes.
+func (c *Client) applianceLogout(ctx context.Context, token Secret) {
+	base, err := Core.baseURL(c.host, c.apiVersion)
+	if err != nil {
+		return
+	}
+	req, err := buildHTTPRequest(ctx, MethodPost, base+"Token/Logout", nil, userTokenAuth(token), "", nil)
+	if err != nil {
+		return
+	}
+	resp, err := c.transports.do(serverTrust, req)
+	if err != nil {
+		return
+	}
+	_ = resp.Body.Close()
+}
+
 // Close is terminal: it releases the transport pools and zeroes the in-memory
-// token. After Close the client cannot be used. Close is idempotent.
+// token. Close installs a terminal epoch so an in-flight refresh cannot
+// resurrect the session (doRefresh publishes only on the observed epoch, and
+// epoch 0 never matches) and zeroes whatever token that swap displaces. After
+// Close the client cannot be used. Close is idempotent.
 func (c *Client) Close() error {
 	if c.closed.Swap(true) {
 		return nil
 	}
-	if ts := c.token.Load(); ts != nil {
-		s := ts.token
+	if prev := c.token.Swap(&tokenState{epoch: 0, anonymous: true}); prev != nil {
+		s := prev.token
 		(&s).Zero()
 	}
 	c.transports.Close()
