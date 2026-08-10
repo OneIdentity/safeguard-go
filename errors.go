@@ -57,6 +57,10 @@ var errNilCredential = errors.New("safeguard: a credential is required to connec
 // errEmptyToken is returned when Token is used with an empty user token.
 var errEmptyToken = errors.New("safeguard: user token must not be empty")
 
+// errNilLoginFunc is returned when AuthorizedSession is used without a login
+// function. The browser and devicecode add-on packages always supply one.
+var errNilLoginFunc = errors.New("safeguard: AuthorizedSession requires a login function")
+
 // errPKCS12Unsupported is returned when Certificate is given PKCS#12 (.pfx/.p12)
 // material. Like PySafeguard, this SDK takes PEM certificate material only;
 // convert a PKCS#12 file with, for example,

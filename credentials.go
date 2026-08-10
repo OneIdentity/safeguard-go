@@ -26,9 +26,11 @@ import (
 )
 
 // Credential is a sealed Safeguard authentication strategy produced by one of
-// this package's credential constructors: UsernamePassword, Certificate, Token,
-// or Anonymous. Its only method is unexported, so the set of credentials is
-// closed and callers cannot implement their own. Pass a Credential to Connect.
+// this package's credential constructors: UsernamePassword, Certificate,
+// PKCEHeadless, Token, Anonymous, or AuthorizedSession (the seam the browser and
+// devicecode add-on packages use). Its only method is unexported, so the set of
+// credentials is closed and callers cannot implement their own. Pass a Credential
+// to Connect.
 type Credential interface {
 	// establish runs the credential's login against c's transports and returns
 	// the resulting session. It is unexported to seal the interface.
@@ -444,6 +446,9 @@ func looksLikePKCS12(material []byte) bool {
 // login-response and multi-factor sentinels pass through for errors.Is.
 func translateAuthError(err error) error {
 	if errors.Is(err, auth.ErrSecondaryFactorRequired) || errors.Is(err, auth.ErrSecondaryFactorFailed) {
+		return err
+	}
+	if errors.Is(err, auth.ErrDeviceCodeDenied) || errors.Is(err, auth.ErrDeviceCodeExpired) {
 		return err
 	}
 	var re *auth.RequestError

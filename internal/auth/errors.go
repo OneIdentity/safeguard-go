@@ -46,6 +46,15 @@ var ErrSecondaryFactorRequired = errors.New("safeguard/auth: multi-factor authen
 // secondary (multi-factor) authentication code. Compare with errors.Is.
 var ErrSecondaryFactorFailed = errors.New("safeguard/auth: multi-factor authentication failed")
 
+// ErrDeviceCodeExpired indicates a device-code login was not completed before
+// the user code expired, either because the polling deadline elapsed or because
+// the appliance reported expired_token. Compare with errors.Is.
+var ErrDeviceCodeExpired = errors.New("safeguard/auth: device code expired before authorization completed")
+
+// ErrDeviceCodeDenied indicates the user denied the device-code authorization
+// request; the appliance reported access_denied. Compare with errors.Is.
+var ErrDeviceCodeDenied = errors.New("safeguard/auth: device code authorization was denied")
+
 // RequestError is returned when an authentication HTTP call fails, either
 // because the transport failed or because the appliance returned a non-success
 // status. The root package inspects StatusCode to map the failure onto its
