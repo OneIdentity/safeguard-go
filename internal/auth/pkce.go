@@ -25,6 +25,7 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -111,10 +112,11 @@ func LoginPKCE(ctx context.Context, cfg Config, provider, username string, passw
 	directory := resolveProviderID(ctx, cfg, cfg.HTTPClient, provider, "local")
 
 	form := &pkceForm{
-		cfg:       cfg,
-		client:    cfg.HTTPClient,
-		challenge: codeChallenge(verifier),
-		cookies:   map[string]string{csrfCookieName: string(csrf)},
+		cfg:         cfg,
+		client:      cfg.HTTPClient,
+		challenge:   codeChallenge(verifier),
+		redirectURI: pkceRedirectURI,
+		cookies:     map[string]string{csrfCookieName: string(csrf)},
 	}
 
 	baseFields := url.Values{}
@@ -123,32 +125,9 @@ func LoginPKCE(ctx context.Context, cfg Config, provider, username string, passw
 	baseFields.Set("passwordTextbox", string(password))
 	baseFields.Set("csrfTokenTextbox", string(csrf))
 
-	if _, err := form.step(ctx, pkceStepInit, baseFields, "pkce init"); err != nil {
-		return nil, err
-	}
-
-	primary, err := form.step(ctx, pkceStepPrimaryAuth, baseFields, "pkce primary authentication")
+	code, err := form.acquireCode(ctx, baseFields, secondary)
 	if err != nil {
 		return nil, err
-	}
-
-	if providerID := jsonField(primary, "SecondaryProviderID"); providerID != "" {
-		if err := form.runSecondary(ctx, baseFields, secondary); err != nil {
-			return nil, err
-		}
-	}
-
-	claims, err := form.step(ctx, pkceStepGenerateClaims, baseFields, "pkce generate claims")
-	if err != nil {
-		return nil, err
-	}
-	relyingParty := jsonField(claims, "RelyingPartyUrl")
-	if relyingParty == "" {
-		return nil, &RequestError{Op: "pkce generate claims", Err: ErrMissingToken, body: bound(claims)}
-	}
-	code, err := extractAuthorizationCode(relyingParty)
-	if err != nil {
-		return nil, &RequestError{Op: "pkce generate claims", Err: err, body: bound(claims)}
 	}
 
 	rstsToken, err := postRSTSGrant(ctx, cfg, cfg.HTTPClient, authorizationCodeGrant{
@@ -163,6 +142,42 @@ func LoginPKCE(ctx context.Context, cfg Config, provider, username string, passw
 	defer zero(rstsToken)
 
 	return exchangeRSTSToken(ctx, cfg, cfg.HTTPClient, rstsToken)
+}
+
+// acquireCode walks the RSTS form controller (init, primary, optional secondary,
+// generate-claims) and returns the OAuth authorization code from the final
+// RelyingPartyUrl. It is shared by the headless PKCE login and the browser
+// add-on's end-to-end tests, which drive the same controller with the
+// TCP-listener redirect.
+func (p *pkceForm) acquireCode(ctx context.Context, baseFields url.Values, secondary SecondaryFactorProvider) (string, error) {
+	if _, err := p.step(ctx, pkceStepInit, baseFields, "pkce init"); err != nil {
+		return "", err
+	}
+
+	primary, err := p.step(ctx, pkceStepPrimaryAuth, baseFields, "pkce primary authentication")
+	if err != nil {
+		return "", err
+	}
+
+	if providerID := jsonField(primary, "SecondaryProviderID"); providerID != "" {
+		if err := p.runSecondary(ctx, baseFields, secondary); err != nil {
+			return "", err
+		}
+	}
+
+	claims, err := p.step(ctx, pkceStepGenerateClaims, baseFields, "pkce generate claims")
+	if err != nil {
+		return "", err
+	}
+	relyingParty := jsonField(claims, "RelyingPartyUrl")
+	if relyingParty == "" {
+		return "", &RequestError{Op: "pkce generate claims", Err: ErrMissingToken, body: bound(claims)}
+	}
+	code, err := extractAuthorizationCode(relyingParty)
+	if err != nil {
+		return "", &RequestError{Op: "pkce generate claims", Err: err, body: bound(claims)}
+	}
+	return code, nil
 }
 
 // runSecondary drives the multi-factor steps: it initializes the secondary
@@ -213,10 +228,12 @@ func (p *pkceForm) runSecondary(ctx context.Context, base url.Values, secondary 
 // CSRF token) threaded across steps. The injected HTTP transport has no cookie
 // jar, so the flow tracks cookies itself.
 type pkceForm struct {
-	cfg       Config
-	client    HTTPClient
-	challenge string
-	cookies   map[string]string
+	cfg         Config
+	client      HTTPClient
+	challenge   string
+	redirectURI string
+	port        int
+	cookies     map[string]string
 }
 
 // step posts one LoginController step and requires a 2xx response, returning the
@@ -268,7 +285,10 @@ func (p *pkceForm) stepURL(step string) string {
 	q.Set("response_type", "code")
 	q.Set("code_challenge_method", "S256")
 	q.Set("code_challenge", p.challenge)
-	q.Set("redirect_uri", pkceRedirectURI)
+	q.Set("redirect_uri", p.redirectURI)
+	if p.port != 0 {
+		q.Set("port", strconv.Itoa(p.port))
+	}
 	q.Set("loginRequestStep", step)
 	return p.cfg.rstsURL(loginControllerPath) + "?" + q.Encode()
 }
