@@ -240,6 +240,16 @@ type A2AEnv struct {
 	Password string
 	// PasswordAPIKey authorizes A2A retrieval of the account password.
 	PasswordAPIKey string
+	// PrivateKeyAPIKey authorizes A2A retrieval of the account's SSH private key.
+	PrivateKeyAPIKey string
+	// APIKeyAPIKey authorizes A2A retrieval of the account's API key secret.
+	APIKeyAPIKey string
+	// APIKeyClientID is the client identifier stored on the account API key, for
+	// round-trip assertions.
+	APIKeyClientID string
+	// APIKeyClientSecret is the client secret stored on the account API key, for
+	// round-trip assertions.
+	APIKeyClientSecret string
 }
 
 // ProvisionA2A stands up a complete A2A environment for host so a live test can
@@ -249,13 +259,14 @@ type A2AEnv struct {
 // Asset or Policy admin -- creates a temporary local admin user granted only the
 // AssetAdmin and PolicyAdmin roles and performs the privileged provisioning as
 // that user: a manually-managed asset (PlatformId 501, "Other Managed") and
-// account, a known password stored on the account, an A2A registration bound to
-// the certificate user, and the account added as a Password-retrievable entry
-// whose generated API key is read back. The flow mirrors PySafeguard's A2A
-// integration test (tests/integration/test_a2a.py). The returned cleanup deletes
-// everything -- registration, account, asset (as the temp admin), then the temp
-// admin, certificate user, and trusted certificate (as the bootstrap admin) --
-// in dependency order; call it with defer.
+// account, a known password stored on the account, an appliance-generated SSH key
+// and an account API key with a known client secret, an A2A registration bound to
+// the certificate user, and the account added as Password-, PrivateKey-, and
+// ApiKey-retrievable entries whose generated API keys are read back. The flow
+// mirrors PySafeguard's A2A integration test (tests/integration/test_a2a.py). The
+// returned cleanup deletes everything -- registration, account, asset (as the temp
+// admin), then the temp admin, certificate user, and trusted certificate (as the
+// bootstrap admin) -- in dependency order; call it with defer.
 func ProvisionA2A(ctx context.Context, tb testing.TB, client *safeguard.Client, certPEM []byte) (env A2AEnv, cleanup func()) {
 	tb.Helper()
 	host := Host(tb)
@@ -347,29 +358,63 @@ func ProvisionA2A(ctx context.Context, tb testing.TB, client *safeguard.Client, 
 		tb.Fatalf("store account password: %v", err)
 	}
 
+	// Store an SSH key on the account so a PrivateKey credential can be retrieved.
+	// Providing no PrivateKey has the appliance generate one, which is sufficient
+	// to prove retrieval and avoids embedding key material in the test.
+	if _, err := provAdmin.Put(ctx, safeguard.Core, fmt.Sprintf("AssetAccounts/%d/SshKey?keyFormat=OpenSsh", env.AccountID), map[string]any{
+		"KeyType":   "RSA",
+		"KeyLength": 2048,
+	}); err != nil {
+		tb.Fatalf("store account ssh key: %v", err)
+	}
+
+	// Create an account API key and set a known client id/secret on it so an
+	// ApiKey credential can be retrieved and its secret asserted.
+	env.APIKeyClientID = "sggo-a2a-client-" + suffix
+	env.APIKeyClientSecret = "sggo-a2a-secret-" + suffix
+	apiKey := postJSON(ctx, tb, provAdmin, fmt.Sprintf("AssetAccounts/%d/ApiKeys", env.AccountID), map[string]any{
+		"Name": "SgGo_A2AKey_" + suffix,
+	}, "create account API key")
+	apiKeyID := idOf(tb, apiKey, "account API key")
+	if _, err := provAdmin.Put(ctx, safeguard.Core, fmt.Sprintf("AssetAccounts/%d/ApiKeys/%d/ClientSecret", env.AccountID, apiKeyID), map[string]any{
+		"ClientId":     env.APIKeyClientID,
+		"ClientSecret": env.APIKeyClientSecret,
+	}); err != nil {
+		tb.Fatalf("set account API key secret: %v", err)
+	}
+
 	registration := postJSON(ctx, tb, provAdmin, "A2ARegistrations", map[string]any{
 		"AppName":           "SgGo_A2AReg_" + suffix,
 		"CertificateUserId": certUserID,
 	}, "create A2A registration")
 	env.RegistrationID = idOf(tb, registration, "registration")
 
-	retrievable := postJSON(ctx, tb, provAdmin, fmt.Sprintf("A2ARegistrations/%d/RetrievableAccounts", env.RegistrationID), map[string]any{
-		"AccountId": env.AccountID,
-		"Type":      "Password",
-	}, "add retrievable account")
-	var ra struct {
-		APIKey string `json:"ApiKey"`
-	}
-	if err := json.Unmarshal(retrievable, &ra); err != nil {
-		tb.Fatalf("decode retrievable account: %v", err)
-	}
-	if ra.APIKey == "" {
-		tb.Fatal("retrievable account returned an empty ApiKey")
-	}
-	env.PasswordAPIKey = ra.APIKey
+	env.PasswordAPIKey = addRetrievable(ctx, tb, provAdmin, env.RegistrationID, env.AccountID, "Password")
+	env.PrivateKeyAPIKey = addRetrievable(ctx, tb, provAdmin, env.RegistrationID, env.AccountID, "PrivateKey")
+	env.APIKeyAPIKey = addRetrievable(ctx, tb, provAdmin, env.RegistrationID, env.AccountID, "ApiKey")
 
 	ok = true
 	return env, cleanup
+}
+
+// addRetrievable adds accountID to the registration as a retrievable account of
+// the given credential type and returns the generated per-credential API key.
+func addRetrievable(ctx context.Context, tb testing.TB, client *safeguard.Client, registrationID, accountID int, credType string) string {
+	tb.Helper()
+	body := postJSON(ctx, tb, client, fmt.Sprintf("A2ARegistrations/%d/RetrievableAccounts", registrationID), map[string]any{
+		"AccountId": accountID,
+		"Type":      credType,
+	}, "add "+credType+" retrievable account")
+	var ra struct {
+		APIKey string `json:"ApiKey"`
+	}
+	if err := json.Unmarshal(body, &ra); err != nil {
+		tb.Fatalf("decode %s retrievable account: %v", credType, err)
+	}
+	if ra.APIKey == "" {
+		tb.Fatalf("%s retrievable account returned an empty ApiKey", credType)
+	}
+	return ra.APIKey
 }
 
 // jsonString returns s encoded as a JSON string value. Safeguard endpoints such
