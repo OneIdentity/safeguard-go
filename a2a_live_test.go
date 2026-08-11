@@ -111,4 +111,43 @@ func TestLiveA2ARetrieve(t *testing.T) {
 			t.Fatal("RetrievePassword with a bogus API key = nil error, want failure")
 		}
 	})
+
+	t.Run("GetRetrievableAccounts", func(t *testing.T) {
+		accounts, err := a2a.GetRetrievableAccounts(ctx, "")
+		if err != nil {
+			t.Fatalf("GetRetrievableAccounts: %v", err)
+		}
+
+		var match *safeguard.A2ARetrievableAccount
+		for i := range accounts {
+			if accounts[i].AccountID == env.AccountID {
+				if match != nil {
+					t.Fatalf("provisioned account listed more than once")
+				}
+				match = &accounts[i]
+			}
+		}
+		if match == nil {
+			t.Fatalf("provisioned account %d not found among %d retrievable accounts", env.AccountID, len(accounts))
+		}
+		if match.AccountName != env.AccountName {
+			t.Errorf("account name = %q, want %q", match.AccountName, env.AccountName)
+		}
+		if match.ApplicationName == "" {
+			t.Error("retrievable account has an empty application name")
+		}
+		if match.APIKey.ExposeString() == "" {
+			t.Fatal("retrievable account has an empty API key")
+		}
+
+		// The discovered API key must actually authorize retrieval, proving the
+		// enumeration returns a usable credential and not just metadata.
+		password, err := a2a.RetrievePassword(ctx, match.APIKey)
+		if err != nil {
+			t.Fatalf("RetrievePassword with discovered API key: %v", err)
+		}
+		if got := password.ExposeString(); got != env.Password {
+			t.Fatalf("retrieved password = %q, want the stored password", got)
+		}
+	})
 }

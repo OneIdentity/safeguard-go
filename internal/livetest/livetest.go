@@ -384,8 +384,10 @@ func ProvisionA2A(ctx context.Context, tb testing.TB, client *safeguard.Client, 
 	}
 
 	registration := postJSON(ctx, tb, provAdmin, "A2ARegistrations", map[string]any{
-		"AppName":           "SgGo_A2AReg_" + suffix,
-		"CertificateUserId": certUserID,
+		"AppName":                   "SgGo_A2AReg_" + suffix,
+		"CertificateUserId":         certUserID,
+		"VisibleToCertificateUsers": true,
+		"BidirectionalEnabled":      true,
 	}, "create A2A registration")
 	env.RegistrationID = idOf(tb, registration, "registration")
 

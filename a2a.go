@@ -22,6 +22,7 @@ import (
 	"io"
 	"log/slog"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync/atomic"
 )
@@ -227,18 +228,140 @@ func (a *A2AContext) RetrieveAPIKeySecret(ctx context.Context, apiKey Secret) ([
 	return out, nil
 }
 
-// a2aDo sends a single request over the client-certificate transport with the
-// given authorization and returns the fully read FullResponse. Unlike the Client
-// Invoke path it never refreshes or replays: an A2A API key is static, so there
-// is nothing to refresh, and the certificate identity is fixed for the context.
+// A2ARetrievableAccount describes one account that the context's client
+// certificate is registered to retrieve credentials for. The APIKey authorizes
+// retrieval of that account's credential and is wrapped in a Secret; the
+// surrounding metadata is not sensitive. The same account may appear more than
+// once -- once per credential type it is registered for -- each with a distinct
+// APIKey; the response does not record which credential type an entry is for.
+type A2ARetrievableAccount struct {
+	// ApplicationName is the AppName of the registration this account belongs to.
+	ApplicationName string
+	// Description is the registration's description.
+	Description string
+	// Disabled reports whether the account or its registration is disabled.
+	Disabled bool
+	// APIKey is the A2A API key that authorizes retrieval of this account's
+	// credential. Pass it to a Retrieve method.
+	APIKey Secret
+	// AssetID is the object ID of the account's asset.
+	AssetID int
+	// AssetName is the name of the account's asset.
+	AssetName string
+	// AssetNetworkAddress is the network address of the account's asset.
+	AssetNetworkAddress string
+	// AssetDescription is the description of the account's asset.
+	AssetDescription string
+	// AccountID is the account's object ID.
+	AccountID int
+	// AccountName is the account's name.
+	AccountName string
+	// DomainName is the account's domain, when it is a directory account.
+	DomainName string
+	// AccountType identifies the kind of account.
+	AccountType string
+	// AccountDescription is the account's description.
+	AccountDescription string
+}
+
+// GetRetrievableAccounts lists the accounts the context's client certificate is
+// registered to retrieve credentials for, across every A2A registration bound to
+// the certificate. Unlike the Retrieve methods it is authorized by the client
+// certificate alone -- no per-account API key -- because it enumerates all
+// registrations for the certificate user. The optional filter is an OData filter
+// expression applied to each registration's accounts; pass "" for no filter.
+//
+// The returned entries carry the per-account APIKey, so a caller can discover an
+// account here and pass its APIKey straight to RetrievePassword,
+// RetrievePrivateKey, or RetrieveAPIKeySecret. Because an entry does not record
+// which credential type it was registered for, a caller that registered an
+// account for more than one type must track that mapping itself.
+func (a *A2AContext) GetRetrievableAccounts(ctx context.Context, filter string) ([]A2ARetrievableAccount, error) {
+	full, err := a.doService(ctx, Core, MethodGet, "A2ARegistrations", nil, noAuth(), nil)
+	if err != nil {
+		return nil, err
+	}
+	var registrations []struct {
+		ID          int    `json:"Id"`
+		AppName     string `json:"AppName"`
+		Description string `json:"Description"`
+		Disabled    bool   `json:"Disabled"`
+	}
+	if err := json.Unmarshal(full.Body, &registrations); err != nil {
+		return nil, &TransportError{Op: "decode", Err: err}
+	}
+
+	var params url.Values
+	if filter != "" {
+		params = url.Values{"filter": {filter}}
+	}
+
+	var out []A2ARetrievableAccount
+	for _, reg := range registrations {
+		full, err := a.doService(ctx, Core, MethodGet, "A2ARegistrations/"+strconv.Itoa(reg.ID)+"/RetrievableAccounts", nil, noAuth(), params)
+		if err != nil {
+			return nil, err
+		}
+		var raw []struct {
+			AccountDisabled    int    `json:"AccountDisabled"`
+			APIKey             string `json:"ApiKey"`
+			AssetID            int    `json:"AssetId"`
+			AssetName          string `json:"AssetName"`
+			NetworkAddress     string `json:"NetworkAddress"`
+			AssetDescription   string `json:"AssetDescription"`
+			AccountID          int    `json:"AccountId"`
+			AccountName        string `json:"AccountName"`
+			DomainName         string `json:"DomainName"`
+			AccountType        string `json:"AccountType"`
+			AccountDescription string `json:"AccountDescription"`
+		}
+		if len(bytes.TrimSpace(full.Body)) == 0 {
+			continue
+		}
+		if err := json.Unmarshal(full.Body, &raw); err != nil {
+			return nil, &TransportError{Op: "decode", Err: err}
+		}
+		for _, r := range raw {
+			out = append(out, A2ARetrievableAccount{
+				ApplicationName:     reg.AppName,
+				Description:         reg.Description,
+				Disabled:            reg.Disabled || r.AccountDisabled != 0,
+				APIKey:              NewSecretString(r.APIKey),
+				AssetID:             r.AssetID,
+				AssetName:           r.AssetName,
+				AssetNetworkAddress: r.NetworkAddress,
+				AssetDescription:    r.AssetDescription,
+				AccountID:           r.AccountID,
+				AccountName:         r.AccountName,
+				DomainName:          r.DomainName,
+				AccountType:         r.AccountType,
+				AccountDescription:  r.AccountDescription,
+			})
+		}
+	}
+	return out, nil
+}
+
+// a2aDo sends a single request to the A2A service over the client-certificate
+// transport with the given authorization and returns the fully read
+// FullResponse.
 func (a *A2AContext) a2aDo(ctx context.Context, m HTTPMethod, relURL string, body any, auth authorization, params url.Values) (FullResponse, error) {
+	return a.doService(ctx, A2A, m, relURL, body, auth, params)
+}
+
+// doService sends a single request to the given service over the
+// client-certificate transport with the given authorization and returns the
+// fully read FullResponse. Unlike the Client Invoke path it never refreshes or
+// replays: an A2A API key is static, so there is nothing to refresh, and the
+// certificate identity is fixed for the context.
+func (a *A2AContext) doService(ctx context.Context, service Service, m HTTPMethod, relURL string, body any, auth authorization, params url.Values) (FullResponse, error) {
 	if a.closed.Load() {
 		return FullResponse{}, ErrClosed
 	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	base, err := A2A.baseURL(a.host, a.apiVersion)
+	base, err := service.baseURL(a.host, a.apiVersion)
 	if err != nil {
 		return FullResponse{}, err
 	}
