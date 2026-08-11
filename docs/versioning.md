@@ -5,7 +5,7 @@
 ## Version sequence
 
 - `v0.x` releases are pre-release candidates while the SDK is private or API-incomplete.
-- `v1.0.0` is the first GA release and must satisfy the parity matrix in `docs/parity-matrix.md`.
+- `v1.0.0` is the first GA release, feature-complete against the flows described in `plan.md`.
 - Breaking changes after `v1` require a new major module path suffix, for example `github.com/OneIdentity/safeguard-go/v2`.
 
 ## Release mechanics

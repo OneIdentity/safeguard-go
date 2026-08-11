@@ -9,7 +9,7 @@ This is a Phase 0 stub to be expanded before implementation tests are written. I
 
 ## Live appliance end-to-end is the standard
 
-Live-appliance e2e is the authoritative proof that a feature works. Fake-server unit tests are a required fast supplement for logic, edge cases, and error mapping, but every auth flow and connection-lifecycle behavior must also be proven against a running Safeguard before its parity-matrix row flips to Done.
+Live-appliance e2e is the authoritative proof that a feature works. Fake-server unit tests are a required fast supplement for logic, edge cases, and error mapping, but every auth flow and connection-lifecycle behavior must also be proven against a running Safeguard before it is considered done.
 
 - Live tests live in-package alongside unit tests and **skip** (never fail) when `SPP_HOST` is unset, so `go test ./...` stays hermetic by default.
 - The reference appliance is `spp1.dan.laptop` (192.168.99.15) with bootstrap `Admin`/`Admin123`. It has **Resource Owner Grant disabled**, so PKCE-headless is the primary automation login; password-login live tests must detect the ROG-disabled response (`grant type is not allowed`) and skip rather than fail.

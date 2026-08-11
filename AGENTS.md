@@ -14,7 +14,6 @@ This repository is currently Phase 0: foundation/contracts only. Keep all implem
 ├── internal/                      # planned transport, URL, and protocol helpers
 ├── examples/                      # planned runnable examples
 ├── cmd/sg/                        # planned sample CLI
-├── docs/parity-matrix.md          # GA parity checklist
 ├── pipeline-templates/            # Azure Pipelines reusable jobs/steps
 └── .agents/skills/                # deeper agent workflow references
 ```
@@ -55,7 +54,7 @@ See `.agents/skills/build-and-release/SKILL.md` for release and versioning notes
 
 ## Commit and PR workflow
 
-The maintainer reviews and approves every commit message before commits are created. Do not commit without explicit instruction. PRs should describe which parity-matrix rows they advance and which unit/integration tests prove the behavior.
+The maintainer reviews and approves every commit message before commits are created. Do not commit without explicit instruction. PRs should describe the behavior they add or change and which unit/integration tests prove it.
 
 ## On-demand skills
 

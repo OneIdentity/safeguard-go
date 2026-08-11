@@ -10,7 +10,7 @@ This repository is in **Phase 0: foundation/contracts only**. The module is pre-
 
 ## Features
 
-Planned GA parity includes:
+Planned features include:
 
 - Authentication flows: Resource Owner Grant username/password, certificate login, PKCE headless with MFA/secondary support, external browser login, device code login, existing user token, anonymous access, and provider name-to-ID lookup.
 - Invoke and Service surface: `Connect`, HTTP verb helpers, generic `Invoke`, `InvokeTyped[T]`, query parameters, headers, API-version override, host override, `FullResponse`, streaming, upload, download, and JSON/CSV/binary/empty responses.
