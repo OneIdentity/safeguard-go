@@ -185,4 +185,47 @@ func TestLiveEvents(t *testing.T) {
 			t.Fatalf("persistent listener stopped before event: %v", listener.Err())
 		}
 	})
+
+	t.Run("PersistentA2AListener", func(t *testing.T) {
+		a2a, err := safeguard.NewA2AContext(host, certPEM, safeguard.Secret{},
+			safeguard.WithA2APrivateKeyPEM(keyPEM),
+			safeguard.WithA2AConnectionOptions(livetest.Options(t, host)...),
+		)
+		if err != nil {
+			t.Fatalf("NewA2AContext against %s: %v", host, err)
+		}
+		defer func() { _ = a2a.Close() }()
+
+		listener := a2a.NewPersistentEventListener(safeguard.NewSecretString(env.PasswordAPIKey))
+		fired := make(chan string, 4)
+		listener.RegisterEventHandler(eventPasswordUpdated, func(name string, data json.RawMessage) {
+			if !json.Valid(data) {
+				t.Errorf("event %q payload is not valid JSON: %s", name, data)
+			}
+			fired <- name
+		})
+
+		startCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+		if err := listener.Start(startCtx); err != nil {
+			t.Fatalf("start persistent A2A event listener: %v", err)
+		}
+		defer listener.Stop()
+
+		// The persistent listener connects asynchronously, so allow a little
+		// longer for the initial subscription to register.
+		time.Sleep(4 * time.Second)
+		changePassword(startCtx, t)
+
+		select {
+		case name := <-fired:
+			if name != eventPasswordUpdated {
+				t.Fatalf("received event %q, want %q", name, eventPasswordUpdated)
+			}
+		case <-time.After(45 * time.Second):
+			t.Fatal("timed out waiting for AssetAccountPasswordUpdated on persistent A2A listener")
+		case <-listener.Done():
+			t.Fatalf("persistent A2A listener stopped before event: %v", listener.Err())
+		}
+	})
 }
