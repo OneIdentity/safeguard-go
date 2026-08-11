@@ -237,6 +237,77 @@ func TestLiveA2ASet(t *testing.T) {
 	})
 }
 
+// TestLiveA2ABroker proves A2A access-request brokering end to end against the
+// appliance named by SPP_HOST. It provisions its own environment -- an asset and
+// account, a certificate user authorized to broker, a target user with an
+// auto-approving Password access policy scoped to the account, and the
+// registration's access request broker -- then, over mutual TLS, brokers a
+// Password access request for the target user with the broker API key and
+// confirms the appliance created it and auto-approved it to the RequestAvailable
+// state. The brokered request is closed and all provisioned state is removed
+// afterward.
+func TestLiveA2ABroker(t *testing.T) {
+	host := livetest.Host(t)
+
+	certPEM, err := os.ReadFile("testdata/CERTS/user-cert.pem")
+	if err != nil {
+		t.Fatalf("read test certificate: %v", err)
+	}
+	keyPEM, err := os.ReadFile("testdata/CERTS/user-key.pem")
+	if err != nil {
+		t.Fatalf("read test key: %v", err)
+	}
+
+	adminCtx, adminCancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer adminCancel()
+	admin := livetest.AdminClient(adminCtx, t)
+	defer func() { _ = admin.Close() }()
+
+	env, cleanup := livetest.ProvisionA2ABroker(adminCtx, t, admin, certPEM)
+	defer cleanup()
+
+	a2a, err := safeguard.NewA2AContext(host, certPEM, safeguard.Secret{},
+		safeguard.WithA2APrivateKeyPEM(keyPEM),
+		safeguard.WithA2AConnectionOptions(livetest.Options(t, host)...),
+	)
+	if err != nil {
+		t.Fatalf("NewA2AContext against %s: %v", host, err)
+	}
+	defer func() { _ = a2a.Close() }()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	req, err := a2a.BrokerAccessRequest(ctx, safeguard.NewSecretString(env.BrokerAPIKey), safeguard.BrokeredAccessRequest{
+		AccessRequestType: safeguard.AccessRequestPassword,
+		ForUserID:         env.ForUserID,
+		AssetID:           env.AssetID,
+		AccountID:         env.AccountID,
+	})
+	if err != nil {
+		t.Fatalf("BrokerAccessRequest: %v", err)
+	}
+	// Close the brokered request before teardown so it does not hold the account.
+	if req.ID != "" {
+		defer func() {
+			_, _ = env.Admin.Post(ctx, safeguard.Core, "AccessRequests/"+req.ID+"/Close", nil)
+		}()
+	}
+
+	if req.ID == "" {
+		t.Fatal("brokered access request has no Id")
+	}
+	if req.State != "RequestAvailable" {
+		t.Fatalf("brokered access request state = %q, want %q (auto-approval should make it immediately available)", req.State, "RequestAvailable")
+	}
+	if req.AccountID != env.AccountID {
+		t.Errorf("brokered request account id = %d, want %d", req.AccountID, env.AccountID)
+	}
+	if req.AccessRequestType != safeguard.AccessRequestPassword {
+		t.Errorf("brokered request type = %q, want %q", req.AccessRequestType, safeguard.AccessRequestPassword)
+	}
+}
+
 // newRSAPrivateKeyPEM returns a freshly generated 2048-bit RSA private key in
 // PKCS#1 PEM form, for proving SetPrivateKey changes the stored key.
 func newRSAPrivateKeyPEM(t *testing.T) string {

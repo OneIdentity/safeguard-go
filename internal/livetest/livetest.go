@@ -399,6 +399,207 @@ func ProvisionA2A(ctx context.Context, tb testing.TB, client *safeguard.Client, 
 	return env, cleanup
 }
 
+// A2ABrokerEnv describes the environment provisioned by ProvisionA2ABroker: the
+// target asset and account, the user the broker creates requests for, and the
+// broker API key that authorizes broker calls.
+type A2ABrokerEnv struct {
+	// CertUserName is the name of the certificate user authorized to broker.
+	CertUserName string
+	// RegistrationID is the A2A registration's object ID.
+	RegistrationID int
+	// AssetID is the manually-managed asset's object ID.
+	AssetID int
+	// AssetName is the manually-managed asset's name.
+	AssetName string
+	// AccountID is the asset account's object ID.
+	AccountID int
+	// AccountName is the asset account's name.
+	AccountName string
+	// ForUserID is the object ID of the user the broker requests access for.
+	ForUserID int
+	// ForUserName is the name of the user the broker requests access for.
+	ForUserName string
+	// BrokerAPIKey authorizes A2A broker access requests for the registration.
+	BrokerAPIKey string
+	// Admin is the privileged provisioning client; a test may use it to close a
+	// brokered access request before cleanup. It is closed by cleanup.
+	Admin *safeguard.Client
+}
+
+// ProvisionA2ABroker stands up a complete A2A access-request-broker environment
+// for host so a live test can broker an access request with the client
+// certificate in certPEM. Beyond the asset, account, certificate user, and
+// registration that credential retrieval needs, brokering requires an
+// authorization chain: a target user, an entitlement (Role) the user belongs to,
+// an auto-approving access policy scoped to the account, and the registration's
+// access request broker configured to list the certificate user. As in
+// ProvisionA2A, the privileged work runs as a temporary local admin granted only
+// the AssetAdmin and PolicyAdmin roles, since the bootstrap admin holds neither.
+// The returned cleanup removes everything in dependency order; call it with
+// defer.
+func ProvisionA2ABroker(ctx context.Context, tb testing.TB, client *safeguard.Client, certPEM []byte) (env A2ABrokerEnv, cleanup func()) {
+	tb.Helper()
+	host := Host(tb)
+
+	if _, err := client.Post(ctx, safeguard.Appliance, "A2AService/Enable", nil); err != nil {
+		tb.Fatalf("enable A2A service: %v", err)
+	}
+
+	certUserName, certUserID, certCleanup := ProvisionCertificateUser(ctx, tb, client, certPEM)
+	env.CertUserName = certUserName
+
+	suffix := randomSuffix(tb)
+
+	adminName := "SgGo_BrokerAdmin_" + suffix
+	adminPass := "SgGo-BrkrAdm-" + suffix + "!1"
+	adminCreated := postJSON(ctx, tb, client, "Users", map[string]any{
+		"Name":                          adminName,
+		"PrimaryAuthenticationProvider": map[string]any{"Id": -1, "Identity": adminName},
+		"AdminRoles":                    []string{"AssetAdmin", "PolicyAdmin"},
+	}, "create temp broker admin user")
+	adminID := idOf(tb, adminCreated, "temp admin user")
+	if _, err := client.Put(ctx, safeguard.Core, fmt.Sprintf("Users/%d/Password", adminID), jsonString(adminPass)); err != nil {
+		_, _ = client.Delete(ctx, safeguard.Core, fmt.Sprintf("Users/%d", adminID))
+		certCleanup()
+		tb.Fatalf("set temp admin password: %v", err)
+	}
+
+	provAdmin, err := safeguard.Connect(ctx, host,
+		safeguard.PKCEHeadless("", adminName, safeguard.NewSecretString(adminPass)),
+		Options(tb, host)...,
+	)
+	if err != nil {
+		_, _ = client.Delete(ctx, safeguard.Core, fmt.Sprintf("Users/%d", adminID))
+		certCleanup()
+		tb.Fatalf("connect temp broker admin: %v", err)
+	}
+	env.Admin = provAdmin
+
+	// Track created objects so a failure partway through still tears down, in
+	// reverse dependency order: policy before role, broker entry and registration
+	// before the account and asset they reference. The certificate user, target
+	// user, and temp admin are removed by the bootstrap admin.
+	var policyID, roleID, forUserID int
+	brokerConfigured := false
+	cleanup = func() {
+		rctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+		defer cancel()
+		if policyID != 0 {
+			_, _ = provAdmin.Delete(rctx, safeguard.Core, fmt.Sprintf("AccessPolicies/%d", policyID))
+		}
+		if roleID != 0 {
+			_, _ = provAdmin.Delete(rctx, safeguard.Core, fmt.Sprintf("Roles/%d", roleID))
+		}
+		if brokerConfigured && env.RegistrationID != 0 {
+			_, _ = provAdmin.Delete(rctx, safeguard.Core, fmt.Sprintf("A2ARegistrations/%d/AccessRequestBroker", env.RegistrationID))
+		}
+		if env.RegistrationID != 0 {
+			_, _ = provAdmin.Delete(rctx, safeguard.Core, fmt.Sprintf("A2ARegistrations/%d", env.RegistrationID))
+		}
+		if env.AccountID != 0 {
+			_, _ = provAdmin.Delete(rctx, safeguard.Core, fmt.Sprintf("AssetAccounts/%d", env.AccountID))
+		}
+		if env.AssetID != 0 {
+			_, _ = provAdmin.Delete(rctx, safeguard.Core, fmt.Sprintf("Assets/%d", env.AssetID))
+		}
+		_ = provAdmin.Close()
+		if forUserID != 0 {
+			_, _ = client.Delete(rctx, safeguard.Core, fmt.Sprintf("Users/%d", forUserID))
+		}
+		certCleanup()
+		_, _ = client.Delete(rctx, safeguard.Core, fmt.Sprintf("Users/%d", adminID))
+	}
+	ok := false
+	defer func() {
+		if !ok {
+			cleanup()
+		}
+	}()
+
+	env.AssetName = "SgGo_BrokerAsset_" + suffix
+	asset := postJSON(ctx, tb, provAdmin, "Assets", map[string]any{
+		"Name":             env.AssetName,
+		"NetworkAddress":   "127.0.0.1",
+		"PlatformId":       501,
+		"AssetPartitionId": -1,
+	}, "create broker asset")
+	env.AssetID = idOf(tb, asset, "asset")
+
+	env.AccountName = "SgGo_BrokerAccount_" + suffix
+	account := postJSON(ctx, tb, provAdmin, "AssetAccounts", map[string]any{
+		"Name":  env.AccountName,
+		"Asset": map[string]any{"Id": env.AssetID},
+	}, "create broker account")
+	env.AccountID = idOf(tb, account, "account")
+
+	// A stored password lets an approved Password request check the credential out.
+	accountPass := "SgGo-Brkr-" + suffix + "!1"
+	if _, err := provAdmin.Put(ctx, safeguard.Core, fmt.Sprintf("AssetAccounts/%d/Password", env.AccountID), jsonString(accountPass)); err != nil {
+		tb.Fatalf("store account password: %v", err)
+	}
+
+	// The user the broker creates requests for. It is a plain local user created
+	// by the bootstrap admin, which holds the user-management role.
+	env.ForUserName = "SgGo_BrokerForUser_" + suffix
+	forUser := postJSON(ctx, tb, client, "Users", map[string]any{
+		"Name":                          env.ForUserName,
+		"PrimaryAuthenticationProvider": map[string]any{"Id": -1, "Identity": env.ForUserName},
+	}, "create broker target user")
+	forUserID = idOf(tb, forUser, "target user")
+	env.ForUserID = forUserID
+	if _, err := client.Put(ctx, safeguard.Core, fmt.Sprintf("Users/%d/Password", forUserID), jsonString("SgGo-BrkrFor-"+suffix+"!1")); err != nil {
+		tb.Fatalf("set target user password: %v", err)
+	}
+
+	// An entitlement (Role) with the target user as a member, then an access
+	// policy scoped to the account that auto-approves Password requests. Without
+	// both, the broker request is denied.
+	role := postJSON(ctx, tb, provAdmin, "Roles", map[string]any{
+		"Name":    "SgGo_BrokerRole_" + suffix,
+		"Members": []map[string]any{{"Id": forUserID, "PrincipalKind": "User"}},
+	}, "create broker entitlement")
+	roleID = idOf(tb, role, "entitlement")
+
+	policy := postJSON(ctx, tb, provAdmin, "AccessPolicies", map[string]any{
+		"Name":                    "SgGo_BrokerPolicy_" + suffix,
+		"RoleId":                  roleID,
+		"AccessRequestProperties": map[string]any{"AccessRequestType": "Password"},
+		"ScopeItems":              []map[string]any{{"Id": env.AccountID, "ScopeItemType": "Account"}},
+		"ApproverProperties":      map[string]any{"RequireApproval": false},
+	}, "create broker access policy")
+	policyID = idOf(tb, policy, "access policy")
+
+	registration := postJSON(ctx, tb, provAdmin, "A2ARegistrations", map[string]any{
+		"AppName":           "SgGo_BrokerReg_" + suffix,
+		"CertificateUserId": certUserID,
+	}, "create A2A registration")
+	env.RegistrationID = idOf(tb, registration, "registration")
+
+	// Configure the registration's access request broker to list the target user
+	// as an impersonation subject; the PUT upserts the broker entry and returns
+	// its generated API key.
+	brokerBody, err := provAdmin.Put(ctx, safeguard.Core, fmt.Sprintf("A2ARegistrations/%d/AccessRequestBroker", env.RegistrationID), map[string]any{
+		"Users": []map[string]any{{"UserId": forUserID}},
+	})
+	if err != nil {
+		tb.Fatalf("configure access request broker: %v", err)
+	}
+	brokerConfigured = true
+	var broker struct {
+		APIKey string `json:"ApiKey"`
+	}
+	if err := json.Unmarshal(brokerBody.Body, &broker); err != nil {
+		tb.Fatalf("decode access request broker: %v", err)
+	}
+	if broker.APIKey == "" {
+		tb.Fatalf("access request broker returned an empty ApiKey")
+	}
+	env.BrokerAPIKey = broker.APIKey
+
+	ok = true
+	return env, cleanup
+}
+
 // addRetrievable adds accountID to the registration as a retrievable account of
 // the given credential type and returns the generated per-credential API key.
 func addRetrievable(ctx context.Context, tb testing.TB, client *safeguard.Client, registrationID, accountID int, credType string) string {

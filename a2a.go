@@ -25,6 +25,7 @@ import (
 	"strconv"
 	"strings"
 	"sync/atomic"
+	"time"
 )
 
 // A2AContext retrieves credentials with the Safeguard Application-to-Application
@@ -371,6 +372,203 @@ func (a *A2AContext) SetPrivateKey(ctx context.Context, apiKey Secret, privateKe
 	}
 	_, err := a.a2aDo(ctx, MethodPut, "Credentials/SshKey", body, a2aAuth(apiKey), url.Values{"keyFormat": {string(format)}})
 	return err
+}
+
+// AccessRequestType identifies the kind of access a brokered access request asks
+// for. The values are the names the Safeguard API uses on the wire.
+type AccessRequestType string
+
+const (
+	// AccessRequestPassword requests release of an account password.
+	AccessRequestPassword AccessRequestType = "Password"
+	// AccessRequestSSHKey requests release of an account SSH key.
+	AccessRequestSSHKey AccessRequestType = "SshKey"
+	// AccessRequestSSH requests an SSH session.
+	AccessRequestSSH AccessRequestType = "Ssh"
+	// AccessRequestRemoteDesktop requests a remote desktop (RDP) session.
+	AccessRequestRemoteDesktop AccessRequestType = "RemoteDesktop"
+	// AccessRequestRemoteDesktopApplication requests a remote desktop application session.
+	AccessRequestRemoteDesktopApplication AccessRequestType = "RemoteDesktopApplication"
+	// AccessRequestTelnet requests a Telnet session.
+	AccessRequestTelnet AccessRequestType = "Telnet"
+	// AccessRequestAPIKey requests release of an account API key.
+	AccessRequestAPIKey AccessRequestType = "ApiKey"
+	// AccessRequestFile requests release of a stored file.
+	AccessRequestFile AccessRequestType = "File"
+)
+
+// BrokeredAccessRequest describes an access request the broker creates on behalf
+// of another user. Identify the account by AccountID (or AccountName, optionally
+// with AccountDomainName) and the asset by AssetID (or AssetName). Identify the
+// user the request is for by ForUserID, or by ForUser with an optional
+// ForProvider to disambiguate the identity provider. Zero-valued fields are
+// omitted from the request.
+type BrokeredAccessRequest struct {
+	// AccessRequestType is the kind of access requested; it is required.
+	AccessRequestType AccessRequestType
+	// ForUserID identifies the user the request is made for by object ID. It
+	// takes precedence over ForUser.
+	ForUserID int
+	// ForUser identifies the user the request is made for by name.
+	ForUser string
+	// ForProvider names the identity provider that resolves ForUser, for example
+	// "local"; it is ignored when ForUserID is set.
+	ForProvider string
+	// AssetID identifies the target asset by object ID. It takes precedence over
+	// AssetName.
+	AssetID int
+	// AssetName identifies the target asset by name.
+	AssetName string
+	// AccountID identifies the target account by object ID. It takes precedence
+	// over AccountName.
+	AccountID int
+	// AccountName identifies the target account by name; omit it to request
+	// access to the asset itself.
+	AccountName string
+	// AccountDomainName disambiguates AccountName when the account is directory
+	// managed.
+	AccountDomainName string
+	// IsEmergency marks the request as an emergency access request.
+	IsEmergency bool
+	// ReasonCodeID selects a predefined reason code by object ID.
+	ReasonCodeID int
+	// ReasonCode selects a predefined reason code by name; it is ignored when
+	// ReasonCodeID is set.
+	ReasonCode string
+	// ReasonComment is a free-text justification for the request.
+	ReasonComment string
+	// TicketNumber associates the request with an external ticket.
+	TicketNumber string
+	// RequestedFor is when the access should begin; a zero time requests access
+	// immediately.
+	RequestedFor time.Time
+	// RequestedDurationDays, RequestedDurationHours, and RequestedDurationMinutes
+	// set how long the access should last; leave them zero for the policy
+	// default.
+	RequestedDurationDays    int
+	RequestedDurationHours   int
+	RequestedDurationMinutes int
+}
+
+// wire builds the ApplicationAccessRequest JSON body, omitting zero-valued
+// fields so the appliance applies its own defaults.
+func (r BrokeredAccessRequest) wire() map[string]any {
+	m := map[string]any{}
+	if r.AccessRequestType != "" {
+		m["AccessRequestType"] = string(r.AccessRequestType)
+	}
+	if r.ForUserID != 0 {
+		m["ForUserId"] = r.ForUserID
+	}
+	if r.ForUser != "" {
+		m["ForUser"] = r.ForUser
+	}
+	if r.ForProvider != "" {
+		m["ForProvider"] = r.ForProvider
+	}
+	if r.AssetID != 0 {
+		m["AssetId"] = r.AssetID
+	}
+	if r.AssetName != "" {
+		m["AssetName"] = r.AssetName
+	}
+	if r.AccountID != 0 {
+		m["AccountId"] = r.AccountID
+	}
+	if r.AccountName != "" {
+		m["AccountName"] = r.AccountName
+	}
+	if r.AccountDomainName != "" {
+		m["AccountDomainName"] = r.AccountDomainName
+	}
+	if r.IsEmergency {
+		m["IsEmergency"] = true
+	}
+	if r.ReasonCodeID != 0 {
+		m["ReasonCodeId"] = r.ReasonCodeID
+	}
+	if r.ReasonCode != "" {
+		m["ReasonCode"] = r.ReasonCode
+	}
+	if r.ReasonComment != "" {
+		m["ReasonComment"] = r.ReasonComment
+	}
+	if r.TicketNumber != "" {
+		m["TicketNumber"] = r.TicketNumber
+	}
+	if !r.RequestedFor.IsZero() {
+		m["RequestedFor"] = r.RequestedFor.UTC().Format(time.RFC3339)
+	}
+	if r.RequestedDurationDays != 0 {
+		m["RequestedDurationDays"] = r.RequestedDurationDays
+	}
+	if r.RequestedDurationHours != 0 {
+		m["RequestedDurationHours"] = r.RequestedDurationHours
+	}
+	if r.RequestedDurationMinutes != 0 {
+		m["RequestedDurationMinutes"] = r.RequestedDurationMinutes
+	}
+	return m
+}
+
+// AccessRequest is the access request the broker created. It exposes the fields
+// callers most commonly need; Raw holds the complete appliance response for
+// anything not modeled here.
+type AccessRequest struct {
+	// ID is the access request's identifier.
+	ID string
+	// State is the request's workflow state, for example "RequestAvailable" once
+	// an auto-approved request is ready or "PendingApproval" when it awaits an
+	// approver.
+	State string
+	// AccessRequestType is the kind of access that was requested.
+	AccessRequestType AccessRequestType
+	// AccountID is the target account's object ID.
+	AccountID int
+	// AccountName is the target account's name.
+	AccountName string
+	// AssetID is the target asset's object ID.
+	AssetID int
+	// AssetName is the target asset's name.
+	AssetName string
+	// Raw is the unmodified JSON body the appliance returned.
+	Raw json.RawMessage
+}
+
+// BrokerAccessRequest creates an access request on behalf of another user over
+// the A2A service, authorized by brokerAPIKey -- the API key of the registration's
+// access request broker, which is distinct from an account's retrieval API key.
+// The registration must list the context's certificate user among its broker
+// users, and an access policy must grant the requested user access to the target,
+// or the appliance rejects the call. The returned AccessRequest reports the
+// request's identifier and state.
+func (a *A2AContext) BrokerAccessRequest(ctx context.Context, brokerAPIKey Secret, req BrokeredAccessRequest) (*AccessRequest, error) {
+	full, err := a.a2aDo(ctx, MethodPost, "AccessRequests", req.wire(), a2aAuth(brokerAPIKey), nil)
+	if err != nil {
+		return nil, err
+	}
+	var raw struct {
+		ID                string `json:"Id"`
+		State             string `json:"State"`
+		AccessRequestType string `json:"AccessRequestType"`
+		AccountID         int    `json:"AccountId"`
+		AccountName       string `json:"AccountName"`
+		AssetID           int    `json:"AssetId"`
+		AssetName         string `json:"AssetName"`
+	}
+	if err := json.Unmarshal(full.Body, &raw); err != nil {
+		return nil, &TransportError{Op: "decode", Err: err}
+	}
+	return &AccessRequest{
+		ID:                raw.ID,
+		State:             raw.State,
+		AccessRequestType: AccessRequestType(raw.AccessRequestType),
+		AccountID:         raw.AccountID,
+		AccountName:       raw.AccountName,
+		AssetID:           raw.AssetID,
+		AssetName:         raw.AssetName,
+		Raw:               append(json.RawMessage(nil), full.Body...),
+	}, nil
 }
 
 // jsonSecretBody encodes a Secret's value as a JSON string body, the bare-string
