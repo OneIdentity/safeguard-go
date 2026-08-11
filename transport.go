@@ -134,6 +134,10 @@ func (ts *transportSet) client(id tlsIdentity) (*http.Client, error) {
 			return nil, errNoClientCert
 		}
 		tc.Certificates = ts.clientCerts
+		// The appliance's RSTS endpoint rejects client-certificate
+		// authentication over HTTP/2 (it responds HTTP_1_1_REQUIRED), so this
+		// transport must offer only HTTP/1.1 during ALPN.
+		tc.NextProtos = []string{"http/1.1"}
 	}
 
 	tr := &http.Transport{
@@ -148,6 +152,13 @@ func (ts *transportSet) client(id tlsIdentity) (*http.Client, error) {
 			Timeout:   ts.timeouts.Dial,
 			KeepAlive: 30 * time.Second,
 		}).DialContext,
+	}
+	if id == clientCert {
+		// Disable the transport's automatic HTTP/2 upgrade to match the
+		// HTTP/1.1-only ALPN above; a non-nil empty TLSNextProto map is the
+		// documented way to keep net/http from installing the HTTP/2 protocol.
+		tr.ForceAttemptHTTP2 = false
+		tr.TLSNextProto = map[string]func(authority string, c *tls.Conn) http.RoundTripper{}
 	}
 	c := &http.Client{
 		Transport: tr,
