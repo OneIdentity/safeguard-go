@@ -28,10 +28,15 @@ package livetest
 
 import (
 	"context"
+	cryptorand "crypto/rand"
+	"crypto/sha1" //nolint:gosec // #nosec G505 -- SHA-1 is the certificate thumbprint algorithm SPP requires.
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
+	"fmt"
 	"net"
 	"net/http"
 	"net/url"
@@ -148,7 +153,85 @@ func GrantEnabled(ctx context.Context, tb testing.TB, client *safeguard.Client, 
 	return false
 }
 
-// grantValue GETs the grant setting and returns its Value string.
+// CertificateThumbprint returns the SHA-1 thumbprint (uppercase hex) of the first
+// certificate in certPEM, matching the thumbprint format the appliance uses to map
+// a certificate-authentication user to its certificate.
+func CertificateThumbprint(tb testing.TB, certPEM []byte) string {
+	tb.Helper()
+	block, _ := pem.Decode(certPEM)
+	if block == nil || block.Type != "CERTIFICATE" {
+		tb.Fatal("no CERTIFICATE block in certificate PEM")
+	}
+	sum := sha1.Sum(block.Bytes) //nolint:gosec // SHA-1 is the thumbprint algorithm SPP requires.
+	return strings.ToUpper(hex.EncodeToString(sum[:]))
+}
+
+// ProvisionCertificateUser makes certPEM usable for a certificate login against
+// the appliance: it uploads the certificate as a trusted certificate and creates
+// a temporary certificate-authentication user mapped to the certificate's
+// thumbprint (PrimaryAuthenticationProvider Id -2, the built-in certificate
+// provider), mirroring how PySafeguard, SafeguardDotNet, and SafeguardJava
+// provision certificate auth for their live tests. It returns the created user's
+// name and a cleanup function that deletes the user and the trusted certificate;
+// call the cleanup with defer.
+func ProvisionCertificateUser(ctx context.Context, tb testing.TB, client *safeguard.Client, certPEM []byte) (userName string, cleanup func()) {
+	tb.Helper()
+	block, _ := pem.Decode(certPEM)
+	if block == nil || block.Type != "CERTIFICATE" {
+		tb.Fatal("no CERTIFICATE block in certificate PEM")
+	}
+	thumbprint := CertificateThumbprint(tb, certPEM)
+
+	// Clear any trusted certificate left over from an interrupted run so the
+	// upload below starts clean; ignore the not-found error that is expected on a
+	// clean appliance.
+	_, _ = client.Delete(ctx, safeguard.Core, "TrustedCertificates/"+thumbprint)
+
+	if _, err := client.Post(ctx, safeguard.Core, "TrustedCertificates", map[string]any{
+		"Base64CertificateData": base64.StdEncoding.EncodeToString(block.Bytes),
+	}); err != nil {
+		tb.Fatalf("upload trusted certificate: %v", err)
+	}
+
+	userName = "SgGo_CertUser_" + randomSuffix(tb)
+	created, err := client.Post(ctx, safeguard.Core, "Users", map[string]any{
+		"Name": userName,
+		"PrimaryAuthenticationProvider": map[string]any{
+			"Id":       -2,
+			"Identity": thumbprint,
+		},
+	})
+	if err != nil {
+		_, _ = client.Delete(ctx, safeguard.Core, "TrustedCertificates/"+thumbprint)
+		tb.Fatalf("create certificate user: %v", err)
+	}
+	var user struct {
+		ID int `json:"Id"`
+	}
+	if err := json.Unmarshal(created.Body, &user); err != nil {
+		tb.Fatalf("decode created certificate user: %v", err)
+	}
+
+	cleanup = func() {
+		rctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		_, _ = client.Delete(rctx, safeguard.Core, fmt.Sprintf("Users/%d", user.ID))
+		_, _ = client.Delete(rctx, safeguard.Core, "TrustedCertificates/"+thumbprint)
+	}
+	return userName, cleanup
+}
+
+// randomSuffix returns a short random hex string used to keep provisioned test
+// object names unique across runs on a shared appliance.
+func randomSuffix(tb testing.TB) string {
+	tb.Helper()
+	var b [6]byte
+	if _, err := cryptorand.Read(b[:]); err != nil {
+		tb.Fatalf("random suffix: %v", err)
+	}
+	return hex.EncodeToString(b[:])
+}
+
 func grantValue(ctx context.Context, tb testing.TB, client *safeguard.Client, path string) string {
 	tb.Helper()
 	full, err := client.Get(ctx, safeguard.Core, path)
