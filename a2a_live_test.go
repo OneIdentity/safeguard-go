@@ -16,6 +16,10 @@ package safeguard_test
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/pem"
 	"os"
 	"strings"
 	"testing"
@@ -150,4 +154,99 @@ func TestLiveA2ARetrieve(t *testing.T) {
 			t.Fatalf("retrieved password = %q, want the stored password", got)
 		}
 	})
+}
+
+// TestLiveA2ASet proves A2A credential write-back end to end against the appliance
+// named by SPP_HOST. It provisions its own A2A environment (whose registration is
+// bidirectional), then, over mutual TLS, sets a new account password and a new SSH
+// private key with the A2A API keys and confirms each change by retrieving the
+// credential back. It uses a separate environment from TestLiveA2ARetrieve so the
+// mutations do not disturb the read-only assertions. All state is removed
+// afterward.
+func TestLiveA2ASet(t *testing.T) {
+	host := livetest.Host(t)
+
+	certPEM, err := os.ReadFile("testdata/CERTS/user-cert.pem")
+	if err != nil {
+		t.Fatalf("read test certificate: %v", err)
+	}
+	keyPEM, err := os.ReadFile("testdata/CERTS/user-key.pem")
+	if err != nil {
+		t.Fatalf("read test key: %v", err)
+	}
+
+	adminCtx, adminCancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer adminCancel()
+	admin := livetest.AdminClient(adminCtx, t)
+	defer func() { _ = admin.Close() }()
+
+	env, cleanup := livetest.ProvisionA2A(adminCtx, t, admin, certPEM)
+	defer cleanup()
+
+	a2a, err := safeguard.NewA2AContext(host, certPEM, safeguard.Secret{},
+		safeguard.WithA2APrivateKeyPEM(keyPEM),
+		safeguard.WithA2AConnectionOptions(livetest.Options(t, host)...),
+	)
+	if err != nil {
+		t.Fatalf("NewA2AContext against %s: %v", host, err)
+	}
+	defer func() { _ = a2a.Close() }()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	t.Run("SetPassword", func(t *testing.T) {
+		newPassword := "SgGo-A2ASet-" + strings.ReplaceAll(t.Name(), "/", "-") + "!2"
+		apiKey := safeguard.NewSecretString(env.PasswordAPIKey)
+		if err := a2a.SetPassword(ctx, apiKey, safeguard.NewSecretString(newPassword)); err != nil {
+			t.Fatalf("SetPassword: %v", err)
+		}
+		got, err := a2a.RetrievePassword(ctx, apiKey)
+		if err != nil {
+			t.Fatalf("RetrievePassword after SetPassword: %v", err)
+		}
+		if got.ExposeString() != newPassword {
+			t.Fatal("retrieved password does not match the one just set")
+		}
+		if got.ExposeString() == env.Password {
+			t.Fatal("password was not changed from the provisioned value")
+		}
+	})
+
+	t.Run("SetPrivateKey", func(t *testing.T) {
+		apiKey := safeguard.NewSecretString(env.PrivateKeyAPIKey)
+		before, err := a2a.RetrievePrivateKey(ctx, apiKey, safeguard.KeyFormatOpenSSH)
+		if err != nil {
+			t.Fatalf("RetrievePrivateKey before SetPrivateKey: %v", err)
+		}
+
+		newKey := newRSAPrivateKeyPEM(t)
+		if err := a2a.SetPrivateKey(ctx, apiKey, safeguard.NewSecretString(newKey), safeguard.Secret{}, safeguard.KeyFormatOpenSSH); err != nil {
+			t.Fatalf("SetPrivateKey: %v", err)
+		}
+		after, err := a2a.RetrievePrivateKey(ctx, apiKey, safeguard.KeyFormatOpenSSH)
+		if err != nil {
+			t.Fatalf("RetrievePrivateKey after SetPrivateKey: %v", err)
+		}
+		if !strings.Contains(after.ExposeString(), "PRIVATE KEY") {
+			t.Fatalf("retrieved key after set = %q, want a PEM private key", after.ExposeString())
+		}
+		if after.ExposeString() == before.ExposeString() {
+			t.Fatal("private key was not changed by SetPrivateKey")
+		}
+	})
+}
+
+// newRSAPrivateKeyPEM returns a freshly generated 2048-bit RSA private key in
+// PKCS#1 PEM form, for proving SetPrivateKey changes the stored key.
+func newRSAPrivateKeyPEM(t *testing.T) string {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("generate RSA key: %v", err)
+	}
+	return string(pem.EncodeToMemory(&pem.Block{
+		Type:  "RSA PRIVATE KEY",
+		Bytes: x509.MarshalPKCS1PrivateKey(key),
+	}))
 }

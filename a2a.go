@@ -342,6 +342,47 @@ func (a *A2AContext) GetRetrievableAccounts(ctx context.Context, filter string) 
 	return out, nil
 }
 
+// SetPassword stores newPassword as the password of the account identified by
+// apiKey, writing it back to Safeguard over the A2A service. The account's A2A
+// registration must have bidirectional (write-back) access enabled, or the
+// appliance rejects the call.
+func (a *A2AContext) SetPassword(ctx context.Context, apiKey Secret, newPassword Secret) error {
+	body, err := jsonSecretBody(newPassword)
+	if err != nil {
+		return err
+	}
+	_, err = a.a2aDo(ctx, MethodPut, "Credentials/Password", body, a2aAuth(apiKey), nil)
+	return err
+}
+
+// SetPrivateKey stores privateKeyPEM as the SSH private key of the account
+// identified by apiKey. privateKeyPEM is the private key in PEM form and format
+// declares its encoding; an empty format selects KeyFormatOpenSSH. passphrase
+// decrypts an encrypted key and may be an empty Secret for an unencrypted key.
+// Like SetPassword, the account's registration must have bidirectional access
+// enabled.
+func (a *A2AContext) SetPrivateKey(ctx context.Context, apiKey Secret, privateKeyPEM Secret, passphrase Secret, format KeyFormat) error {
+	if format == "" {
+		format = KeyFormatOpenSSH
+	}
+	body := map[string]string{
+		"Passphrase": passphrase.ExposeString(),
+		"PrivateKey": privateKeyPEM.ExposeString(),
+	}
+	_, err := a.a2aDo(ctx, MethodPut, "Credentials/SshKey", body, a2aAuth(apiKey), url.Values{"keyFormat": {string(format)}})
+	return err
+}
+
+// jsonSecretBody encodes a Secret's value as a JSON string body, the bare-string
+// form the appliance's password setters expect (for example "newpass").
+func jsonSecretBody(s Secret) (json.RawMessage, error) {
+	b, err := json.Marshal(s.ExposeString())
+	if err != nil {
+		return nil, &TransportError{Op: "encode", Err: err}
+	}
+	return json.RawMessage(b), nil
+}
+
 // a2aDo sends a single request to the A2A service over the client-certificate
 // transport with the given authorization and returns the fully read
 // FullResponse.
