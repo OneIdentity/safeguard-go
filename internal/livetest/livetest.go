@@ -172,9 +172,9 @@ func CertificateThumbprint(tb testing.TB, certPEM []byte) string {
 // thumbprint (PrimaryAuthenticationProvider Id -2, the built-in certificate
 // provider), mirroring how PySafeguard, SafeguardDotNet, and SafeguardJava
 // provision certificate auth for their live tests. It returns the created user's
-// name and a cleanup function that deletes the user and the trusted certificate;
-// call the cleanup with defer.
-func ProvisionCertificateUser(ctx context.Context, tb testing.TB, client *safeguard.Client, certPEM []byte) (userName string, cleanup func()) {
+// name, its object ID, and a cleanup function that deletes the user and the
+// trusted certificate; call the cleanup with defer.
+func ProvisionCertificateUser(ctx context.Context, tb testing.TB, client *safeguard.Client, certPEM []byte) (userName string, userID int, cleanup func()) {
 	tb.Helper()
 	block, _ := pem.Decode(certPEM)
 	if block == nil || block.Type != "CERTIFICATE" {
@@ -218,7 +218,192 @@ func ProvisionCertificateUser(ctx context.Context, tb testing.TB, client *safegu
 		_, _ = client.Delete(rctx, safeguard.Core, fmt.Sprintf("Users/%d", user.ID))
 		_, _ = client.Delete(rctx, safeguard.Core, "TrustedCertificates/"+thumbprint)
 	}
-	return userName, cleanup
+	return userName, user.ID, cleanup
+}
+
+// A2AEnv describes the A2A environment provisioned by ProvisionA2A: the object
+// IDs created on the appliance, the known password stored on the account, and the
+// API key that authorizes A2A password retrieval for that account.
+type A2AEnv struct {
+	// CertUserName is the name of the certificate user the registration is bound
+	// to.
+	CertUserName string
+	// RegistrationID is the A2A registration's object ID.
+	RegistrationID int
+	// AssetID is the manually-managed asset's object ID.
+	AssetID int
+	// AccountID is the asset account's object ID.
+	AccountID int
+	// AccountName is the asset account's name.
+	AccountName string
+	// Password is the password stored on the account, for round-trip assertions.
+	Password string
+	// PasswordAPIKey authorizes A2A retrieval of the account password.
+	PasswordAPIKey string
+}
+
+// ProvisionA2A stands up a complete A2A environment for host so a live test can
+// retrieve a password over the A2A service with the client certificate in
+// certPEM. It enables the A2A service, provisions a certificate user to bind the
+// registration to, and -- because the bootstrap admin is deliberately not an
+// Asset or Policy admin -- creates a temporary local admin user granted only the
+// AssetAdmin and PolicyAdmin roles and performs the privileged provisioning as
+// that user: a manually-managed asset (PlatformId 501, "Other Managed") and
+// account, a known password stored on the account, an A2A registration bound to
+// the certificate user, and the account added as a Password-retrievable entry
+// whose generated API key is read back. The flow mirrors PySafeguard's A2A
+// integration test (tests/integration/test_a2a.py). The returned cleanup deletes
+// everything -- registration, account, asset (as the temp admin), then the temp
+// admin, certificate user, and trusted certificate (as the bootstrap admin) --
+// in dependency order; call it with defer.
+func ProvisionA2A(ctx context.Context, tb testing.TB, client *safeguard.Client, certPEM []byte) (env A2AEnv, cleanup func()) {
+	tb.Helper()
+	host := Host(tb)
+
+	// The A2A service is disabled by default on a Safeguard appliance and must be
+	// enabled before any retrieval works; the call is idempotent.
+	if _, err := client.Post(ctx, safeguard.Appliance, "A2AService/Enable", nil); err != nil {
+		tb.Fatalf("enable A2A service: %v", err)
+	}
+
+	certUserName, certUserID, certCleanup := ProvisionCertificateUser(ctx, tb, client, certPEM)
+	env.CertUserName = certUserName
+
+	suffix := randomSuffix(tb)
+
+	// The bootstrap admin can manage users but not assets or A2A registrations, so
+	// provision those as a throwaway local admin granted just the two roles the
+	// job needs. It authenticates with PKCE, which works even when the Resource
+	// Owner Grant is disabled.
+	adminName := "SgGo_A2AAdmin_" + suffix
+	adminPass := "SgGo-A2AAdm-" + suffix + "!1"
+	adminCreated := postJSON(ctx, tb, client, "Users", map[string]any{
+		"Name":                          adminName,
+		"PrimaryAuthenticationProvider": map[string]any{"Id": -1, "Identity": adminName},
+		"AdminRoles":                    []string{"AssetAdmin", "PolicyAdmin"},
+	}, "create temp A2A admin user")
+	adminID := idOf(tb, adminCreated, "temp admin user")
+	if _, err := client.Put(ctx, safeguard.Core, fmt.Sprintf("Users/%d/Password", adminID), jsonString(adminPass)); err != nil {
+		_, _ = client.Delete(ctx, safeguard.Core, fmt.Sprintf("Users/%d", adminID))
+		certCleanup()
+		tb.Fatalf("set temp admin password: %v", err)
+	}
+
+	provAdmin, err := safeguard.Connect(ctx, host,
+		safeguard.PKCEHeadless("", adminName, safeguard.NewSecretString(adminPass)),
+		Options(tb, host)...,
+	)
+	if err != nil {
+		_, _ = client.Delete(ctx, safeguard.Core, fmt.Sprintf("Users/%d", adminID))
+		certCleanup()
+		tb.Fatalf("connect temp A2A admin: %v", err)
+	}
+
+	// Track created objects so a failure partway through still tears down. Assets,
+	// accounts, and registrations are removed by the temp admin that owns the
+	// roles; the certificate user, trusted certificate, and temp admin are removed
+	// by the bootstrap admin.
+	cleanup = func() {
+		rctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+		if env.RegistrationID != 0 {
+			_, _ = provAdmin.Delete(rctx, safeguard.Core, fmt.Sprintf("A2ARegistrations/%d", env.RegistrationID))
+		}
+		if env.AccountID != 0 {
+			_, _ = provAdmin.Delete(rctx, safeguard.Core, fmt.Sprintf("AssetAccounts/%d", env.AccountID))
+		}
+		if env.AssetID != 0 {
+			_, _ = provAdmin.Delete(rctx, safeguard.Core, fmt.Sprintf("Assets/%d", env.AssetID))
+		}
+		_ = provAdmin.Close()
+		certCleanup()
+		_, _ = client.Delete(rctx, safeguard.Core, fmt.Sprintf("Users/%d", adminID))
+	}
+	// Ensure teardown runs if a later provisioning step fails this test.
+	ok := false
+	defer func() {
+		if !ok {
+			cleanup()
+		}
+	}()
+
+	asset := postJSON(ctx, tb, provAdmin, "Assets", map[string]any{
+		"Name":             "SgGo_A2AAsset_" + suffix,
+		"NetworkAddress":   "127.0.0.1",
+		"PlatformId":       501,
+		"AssetPartitionId": -1,
+	}, "create A2A asset")
+	env.AssetID = idOf(tb, asset, "asset")
+
+	env.AccountName = "SgGo_A2AAccount_" + suffix
+	account := postJSON(ctx, tb, provAdmin, "AssetAccounts", map[string]any{
+		"Name":  env.AccountName,
+		"Asset": map[string]any{"Id": env.AssetID},
+	}, "create A2A account")
+	env.AccountID = idOf(tb, account, "account")
+
+	env.Password = "SgGo-A2A-" + suffix + "!1"
+	if _, err := provAdmin.Put(ctx, safeguard.Core, fmt.Sprintf("AssetAccounts/%d/Password", env.AccountID), jsonString(env.Password)); err != nil {
+		tb.Fatalf("store account password: %v", err)
+	}
+
+	registration := postJSON(ctx, tb, provAdmin, "A2ARegistrations", map[string]any{
+		"AppName":           "SgGo_A2AReg_" + suffix,
+		"CertificateUserId": certUserID,
+	}, "create A2A registration")
+	env.RegistrationID = idOf(tb, registration, "registration")
+
+	retrievable := postJSON(ctx, tb, provAdmin, fmt.Sprintf("A2ARegistrations/%d/RetrievableAccounts", env.RegistrationID), map[string]any{
+		"AccountId": env.AccountID,
+		"Type":      "Password",
+	}, "add retrievable account")
+	var ra struct {
+		APIKey string `json:"ApiKey"`
+	}
+	if err := json.Unmarshal(retrievable, &ra); err != nil {
+		tb.Fatalf("decode retrievable account: %v", err)
+	}
+	if ra.APIKey == "" {
+		tb.Fatal("retrievable account returned an empty ApiKey")
+	}
+	env.PasswordAPIKey = ra.APIKey
+
+	ok = true
+	return env, cleanup
+}
+
+// jsonString returns s encoded as a JSON string value. Safeguard endpoints such
+// as the user and account password setters take a bare JSON string body (for
+// example "secret"), which is distinct from sending the raw characters.
+func jsonString(s string) json.RawMessage {
+	b, _ := json.Marshal(s)
+	return json.RawMessage(b)
+}
+
+// postJSON POSTs body to the Core service path and returns the response body,
+// failing the test on error.
+func postJSON(ctx context.Context, tb testing.TB, client *safeguard.Client, path string, body any, what string) []byte {
+	tb.Helper()
+	full, err := client.Post(ctx, safeguard.Core, path, body)
+	if err != nil {
+		tb.Fatalf("%s: %v", what, err)
+	}
+	return full.Body
+}
+
+// idOf decodes the "Id" field from a created-object response body.
+func idOf(tb testing.TB, body []byte, what string) int {
+	tb.Helper()
+	var obj struct {
+		ID int `json:"Id"`
+	}
+	if err := json.Unmarshal(body, &obj); err != nil {
+		tb.Fatalf("decode created %s: %v", what, err)
+	}
+	if obj.ID == 0 {
+		tb.Fatalf("created %s has no Id", what)
+	}
+	return obj.ID
 }
 
 // randomSuffix returns a short random hex string used to keep provisioned test

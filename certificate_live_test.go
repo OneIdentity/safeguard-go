@@ -52,7 +52,7 @@ func TestLiveCertificateConnect(t *testing.T) {
 	admin := livetest.AdminClient(adminCtx, t)
 	defer func() { _ = admin.Close() }()
 
-	userName, cleanup := livetest.ProvisionCertificateUser(adminCtx, t, admin, certPEM)
+	userName, _, cleanup := livetest.ProvisionCertificateUser(adminCtx, t, admin, certPEM)
 	defer cleanup()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
