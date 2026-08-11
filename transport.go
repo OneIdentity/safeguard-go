@@ -103,6 +103,7 @@ type transportSet struct {
 	timeouts    Timeouts
 	clientCerts []tls.Certificate
 	clients     map[tlsIdentity]*http.Client
+	wsClients   map[tlsIdentity]*http.Client
 	closed      bool
 }
 
@@ -112,6 +113,7 @@ func newTransportSet(tlsConfig *tls.Config, timeouts Timeouts) *transportSet {
 		tlsConfig: tlsConfig,
 		timeouts:  timeouts.orDefault(),
 		clients:   make(map[tlsIdentity]*http.Client),
+		wsClients: make(map[tlsIdentity]*http.Client),
 	}
 }
 
@@ -170,6 +172,54 @@ func (ts *transportSet) client(id tlsIdentity) (*http.Client, error) {
 	return c, nil
 }
 
+// websocketClient returns an *http.Client suitable for a WebSocket upgrade on the
+// TLS identity id, building it lazily and caching it separately from the API
+// pools. WebSocket upgrades ride the HTTP/1.1 Connection: Upgrade mechanism,
+// which net/http only performs over HTTP/1.1, so this client offers no HTTP/2 and
+// has no overall Timeout (an event stream is long-lived). It shares the set's TLS
+// configuration and, for the clientCert identity, its certificates.
+func (ts *transportSet) websocketClient(id tlsIdentity) (*http.Client, error) {
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	if ts.closed {
+		return nil, ErrClosed
+	}
+	if c, ok := ts.wsClients[id]; ok {
+		return c, nil
+	}
+
+	tc := ts.tlsConfig.Clone()
+	tc.NextProtos = []string{"http/1.1"}
+	if id == clientCert {
+		if len(ts.clientCerts) == 0 {
+			return nil, errNoClientCert
+		}
+		tc.Certificates = ts.clientCerts
+	}
+
+	tr := &http.Transport{
+		Proxy:               http.ProxyFromEnvironment,
+		TLSClientConfig:     tc,
+		ForceAttemptHTTP2:   false,
+		TLSNextProto:        map[string]func(authority string, c *tls.Conn) http.RoundTripper{},
+		MaxIdleConns:        100,
+		IdleConnTimeout:     90 * time.Second,
+		TLSHandshakeTimeout: ts.timeouts.TLSHandshake,
+		DialContext: (&net.Dialer{
+			Timeout:   ts.timeouts.Dial,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+	}
+	c := &http.Client{
+		Transport: tr,
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	ts.wsClients[id] = c
+	return c, nil
+}
+
 // setClientCerts installs the client certificates presented by the clientCert
 // transport (certificate login, A2A) and drops any already-built clientCert
 // pool so it is rebuilt with the new material on next use. It does not affect the
@@ -183,6 +233,12 @@ func (ts *transportSet) setClientCerts(certs []tls.Certificate) {
 			tr.CloseIdleConnections()
 		}
 		delete(ts.clients, clientCert)
+	}
+	if c, ok := ts.wsClients[clientCert]; ok {
+		if tr, ok := c.Transport.(*http.Transport); ok {
+			tr.CloseIdleConnections()
+		}
+		delete(ts.wsClients, clientCert)
 	}
 }
 
@@ -212,7 +268,13 @@ func (ts *transportSet) Close() {
 			tr.CloseIdleConnections()
 		}
 	}
+	for _, c := range ts.wsClients {
+		if tr, ok := c.Transport.(*http.Transport); ok {
+			tr.CloseIdleConnections()
+		}
+	}
 	ts.clients = make(map[tlsIdentity]*http.Client)
+	ts.wsClients = make(map[tlsIdentity]*http.Client)
 }
 
 // buildHTTPRequest constructs an *http.Request applying additional headers, the

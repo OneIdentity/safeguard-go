@@ -250,6 +250,11 @@ type A2AEnv struct {
 	// APIKeyClientSecret is the client secret stored on the account API key, for
 	// round-trip assertions.
 	APIKeyClientSecret string
+	// Admin is the temporary AssetAdmin/PolicyAdmin PKCE client that owns the
+	// provisioned asset and account. A test may use it as a user-event listener
+	// (it can see the account) or to trigger changes such as a password update.
+	// It is closed by cleanup.
+	Admin *safeguard.Client
 }
 
 // ProvisionA2A stands up a complete A2A environment for host so a live test can
@@ -395,6 +400,7 @@ func ProvisionA2A(ctx context.Context, tb testing.TB, client *safeguard.Client, 
 	env.PrivateKeyAPIKey = addRetrievable(ctx, tb, provAdmin, env.RegistrationID, env.AccountID, "PrivateKey")
 	env.APIKeyAPIKey = addRetrievable(ctx, tb, provAdmin, env.RegistrationID, env.AccountID, "ApiKey")
 
+	env.Admin = provAdmin
 	ok = true
 	return env, cleanup
 }

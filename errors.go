@@ -39,6 +39,9 @@ var (
 	ErrReservedHeader = errors.New("safeguard: Authorization is a reserved header and cannot be set on a request")
 	// ErrClosed indicates the client has been closed and can no longer be used.
 	ErrClosed = errors.New("safeguard: client is closed")
+	// ErrAlreadyStarted indicates an event listener's Start was called more than
+	// once. Create a new listener instead of restarting a stopped one.
+	ErrAlreadyStarted = errors.New("safeguard: event listener already started")
 )
 
 // errEmptyAPIVersion is returned when an empty API version is supplied.
