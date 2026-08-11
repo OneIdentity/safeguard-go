@@ -26,16 +26,33 @@ import (
 const redactedText = "[REDACTED]"
 
 // Secret holds sensitive bytes (passwords, tokens, API keys, retrieved
-// credentials) and refuses to reveal them through any of the usual accidental
-// leakage paths: fmt verbs, String/GoString, JSON/text marshaling, and slog.
+// credentials) and makes reading them a deliberate act. Its purpose is to
+// prevent accidental disclosure, not to provide cryptographic or memory-hardened
+// protection; set expectations accordingly.
 //
-// Callers obtain the underlying bytes only through the explicit Expose method.
-// Secret is a value type; copies share no backing array with the constructor's
-// input because NewSecret copies its argument.
+// What it guards against (the common ways an SDK leaks a credential):
+//   - fmt: String, GoString, and Format render "[REDACTED]" for every verb, so
+//     %v/%s/%+v/%#v, prints, and error messages never reveal the bytes.
+//   - Serialization: MarshalJSON and MarshalText emit "[REDACTED]", so a Secret
+//     embedded in a struct is not written out in cleartext.
+//   - Logging: LogValue (slog.LogValuer) redacts the value in structured logs.
 //
-// Honest limitation: Go cannot guarantee that secret bytes are never copied to
-// swap or that every derived value (for example a parsed TLS key) is zeroable, so
-// Zero is best-effort and disposal is not a hard guarantee.
+// Hygiene it adds: NewSecret copies its input and Expose returns a copy, so no
+// backing array is aliased; Equal compares in constant time; Zero best-effort
+// wipes the buffer to shrink the in-memory plaintext window.
+//
+// What it deliberately does NOT provide:
+//   - No encryption at rest in memory: the bytes are plaintext on the Go heap
+//     while held. It is not a defense against an adversary who can read process
+//     memory, a core dump, swap, or an attached debugger.
+//   - Once exposed, derived values cannot be reclaimed: an ExposeString result is
+//     an immutable Go string that cannot be zeroed, and a parsed key (for example
+//     a tls.Certificate) is out of Secret's control.
+//   - Zero is best-effort only: Go's runtime may copy or move the backing array,
+//     so disposal is not a hard guarantee.
+//
+// Callers obtain the underlying bytes only through the explicit Expose or
+// ExposeString methods. Secret is a value type.
 type Secret struct {
 	b []byte
 }
