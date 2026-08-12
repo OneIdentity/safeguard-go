@@ -123,8 +123,16 @@ func (ec *eventConn) negotiateURL() string {
 }
 
 // websocketURL is the wss upgrade endpoint carrying the negotiated connection
-// token and, for user events, the access token as a query parameter (browser
-// WebSocket clients cannot set headers, and the appliance honors the convention).
+// token and, for user events, the access token as a query parameter.
+//
+// Passing the bearer token in the access_token query parameter is the standard
+// ASP.NET Core SignalR convention (the appliance's event hub is SignalR): the
+// WebSocket handshake cannot carry an Authorization header, so the token is sent
+// in the query string instead. This is as secure as the header provided the
+// connection uses TLS (wss), which it always does here. Per Microsoft's guidance
+// the token may still appear in server-side request logs, so the appliance is
+// responsible for scrubbing it there.
+// See https://learn.microsoft.com/aspnet/core/signalr/security#access-token-logging
 func (ec *eventConn) websocketURL(connToken string, auth authorization) string {
 	q := url.Values{"id": {connToken}}
 	if auth.kind == authUserToken && !auth.token.IsZero() {

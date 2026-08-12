@@ -106,6 +106,13 @@ Relevant when touching `events_signalr.go`:
 - **Upgrade + handshake:** open the `wss` connection with the negotiated token,
   then send the JSON protocol handshake; the reply is a single record — `{}` on
   success or `{"error":"..."}` on rejection.
+- **User-token auth:** a user-session listener passes its bearer token in the
+  `access_token` query parameter (the standard ASP.NET Core SignalR convention,
+  since a WebSocket handshake can't set an `Authorization` header). This is as
+  secure as the header because the connection is always `wss`; the token can
+  still land in appliance request logs, which is the appliance's concern, not the
+  SDK's. See
+  <https://learn.microsoft.com/aspnet/core/signalr/security#access-token-logging>.
 - **Transport axis:** the listener negotiates and upgrades on the correct
   `tlsIdentity` with the current token snapshot — `serverTrust` + user token for
   a `Client` listener; `clientCert` + A2A API key for an `A2AContext` listener.
