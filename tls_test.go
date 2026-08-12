@@ -10,6 +10,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"math/big"
+	"net/http"
 	"testing"
 	"time"
 )
@@ -89,8 +90,35 @@ func TestBuildTLSConfigValidator(t *testing.T) {
 	if tlsConfig.MinVersion != tls.VersionTLS12 {
 		t.Fatalf("MinVersion = %d, want %d", tlsConfig.MinVersion, tls.VersionTLS12)
 	}
-	if tlsConfig.Renegotiation != tls.RenegotiateFreelyAsClient {
-		t.Fatalf("Renegotiation = %d, want %d", tlsConfig.Renegotiation, tls.RenegotiateFreelyAsClient)
+	// The shared config must NOT enable renegotiation; free client renegotiation
+	// is scoped to the client-certificate transport only (see
+	// TestClientCertTransportEnablesRenegotiation).
+	if tlsConfig.Renegotiation != tls.RenegotiateNever {
+		t.Fatalf("Renegotiation = %d, want %d (RenegotiateNever)", tlsConfig.Renegotiation, tls.RenegotiateNever)
+	}
+}
+
+// TestClientCertTransportEnablesRenegotiation verifies that free client
+// renegotiation is enabled on the client-certificate transport (for the legacy
+// A2A/RSTS endpoints) but stays disabled on the shared server-trust transport.
+func TestClientCertTransportEnablesRenegotiation(t *testing.T) {
+	ts := newTransportSet(&tls.Config{MinVersion: tls.VersionTLS12}, Timeouts{})
+	ts.setClientCerts([]tls.Certificate{{Certificate: [][]byte{{0x01}}}})
+
+	server, err := ts.client(serverTrust)
+	if err != nil {
+		t.Fatalf("client(serverTrust): %v", err)
+	}
+	if got := server.Transport.(*http.Transport).TLSClientConfig.Renegotiation; got != tls.RenegotiateNever {
+		t.Fatalf("serverTrust Renegotiation = %d, want RenegotiateNever", got)
+	}
+
+	cert, err := ts.client(clientCert)
+	if err != nil {
+		t.Fatalf("client(clientCert): %v", err)
+	}
+	if got := cert.Transport.(*http.Transport).TLSClientConfig.Renegotiation; got != tls.RenegotiateFreelyAsClient {
+		t.Fatalf("clientCert Renegotiation = %d, want RenegotiateFreelyAsClient", got)
 	}
 }
 

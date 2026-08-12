@@ -12,7 +12,7 @@ The module is pre-1.0; the public API may change before the first `v1.0.0` relea
 - **Invoke and Service surface** — `Connect`, `Get`/`Post`/`Put`/`Delete` helpers, generic `Invoke`, typed `InvokeTyped[T]`, query parameters, headers, per-request API-version and host overrides, `Response`, and `Stream`/`Upload`/`Download` for large payloads.
 - **Application-to-Application (A2A)** — password, SSH private-key, and API-key secret retrieval; password and private-key set (write-back); access-request brokering; retrievable-account discovery; and credential-change events.
 - **Events** — an owned SignalR-over-WebSocket implementation with one-shot and persistent (auto-reconnecting) listeners for both user sessions and A2A credential-change streams.
-- **TLS secure by default** — system trust by default, custom CA bundles, an additive server-certificate validator callback, and a loud insecure override for bootstrap/test appliances.
+- **TLS secure by default** — HTTPS-only appliance endpoints (a non-https host is rejected), system trust by default, custom CA bundles that replace the system trust store, an additive server-certificate validator callback, and a loud insecure override for bootstrap/test appliances.
 - **Typed errors** — API, authentication (401), authorization (403), not-found (404), transport, and sentinel errors designed for `errors.Is`/`errors.As`.
 - **Secret hygiene** — the `Secret` type wraps sensitive values, redacts them from strings/logs/errors/JSON, copies on construction and exposure, and best-effort zeroes on close.
 

@@ -1,6 +1,7 @@
 package safeguard
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -48,6 +49,8 @@ func TestServiceBaseURLErrors(t *testing.T) {
 	}{
 		{name: "empty host", service: Core, host: ""},
 		{name: "unknown service", service: Service("unknown"), host: "HOST"},
+		{name: "http scheme", service: Core, host: "http://HOST"},
+		{name: "ftp scheme", service: Core, host: "ftp://HOST"},
 	}
 
 	for _, tc := range cases {
@@ -58,6 +61,9 @@ func TestServiceBaseURLErrors(t *testing.T) {
 			}
 			if tc.name == "unknown service" && !strings.Contains(err.Error(), "unknown service") {
 				t.Fatalf("error = %q, want unknown service", err)
+			}
+			if (tc.name == "http scheme" || tc.name == "ftp scheme") && !errors.Is(err, errInsecureHostScheme) {
+				t.Fatalf("error = %v, want errInsecureHostScheme", err)
 			}
 		})
 	}

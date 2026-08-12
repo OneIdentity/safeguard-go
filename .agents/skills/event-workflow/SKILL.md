@@ -57,8 +57,11 @@ if err := listener.Err(); err != nil && ctx.Err() == nil { /* stopped on error *
   listener rather than restarting a stopped one.
 - **`Done`** closes when the listener stops (Stop, cancelled ctx, or connection
   error); it returns `nil` before `Start`. **`Err`** returns the cause (nil if
-  clean or still running). **`Stop`** waits for the goroutine to finish and is
-  safe to call repeatedly and before `Start` returns.
+  clean or still running). **`Stop`** cancels the listener and waits for its read
+  loop to stop; it is idempotent, safe to call before `Start` returns, and safe
+  to call **from within an event handler** (a handler that calls `Stop` does not
+  deadlock, because the read loop that closes `Done` runs on a separate goroutine
+  and is not blocked by the handler).
 
 ## Handler execution model
 

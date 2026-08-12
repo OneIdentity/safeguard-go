@@ -77,12 +77,29 @@ func (s Service) pathPrefix(apiVersion string) (string, error) {
 	return fmt.Sprintf("service/%s/%s", string(s), v), nil
 }
 
+// validateHostScheme rejects a host that carries a scheme other than https.
+// Safeguard appliances are https-only, so an http:// (or any non-https) host is
+// always a misconfiguration. A bare host without a scheme is accepted; https is
+// assumed for it when URLs are built. The comparison is case-insensitive.
+func validateHostScheme(host string) error {
+	h := strings.TrimSpace(host)
+	if i := strings.Index(h, "://"); i >= 0 {
+		if !strings.EqualFold(h[:i], "https") {
+			return errInsecureHostScheme
+		}
+	}
+	return nil
+}
+
 // baseURL builds the absolute base URL, with a trailing slash, for the service on
-// host using apiVersion. host may include a scheme; if it does not, https is
-// assumed. host must not be empty.
+// host using apiVersion. host may include an https scheme; if it does not, https
+// is assumed. A non-https scheme is rejected. host must not be empty.
 func (s Service) baseURL(host, apiVersion string) (string, error) {
 	if strings.TrimSpace(host) == "" {
 		return "", fmt.Errorf("safeguard: empty host")
+	}
+	if err := validateHostScheme(host); err != nil {
+		return "", err
 	}
 	prefix, err := s.pathPrefix(apiVersion)
 	if err != nil {

@@ -55,10 +55,11 @@
 //
 // # TLS trust
 //
-// TLS verification is on by default. Trust a privately issued appliance
-// certificate with [WithCABundle]. [WithInsecureTLS] disables verification and
-// exists only for bootstrapping development appliances; it must never be used in
-// production.
+// TLS verification is on by default, and appliance hosts must use https (a
+// non-https host is rejected). Trust a privately issued appliance certificate
+// with [WithCABundle], which replaces the system trust store for server
+// verification. [WithInsecureTLS] disables verification and exists only for
+// bootstrapping development appliances; it must never be used in production.
 //
 // # A2A and events
 //

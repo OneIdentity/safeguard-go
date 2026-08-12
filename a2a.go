@@ -93,6 +93,9 @@ func NewA2AContext(host string, certPEM []byte, password Secret, opts ...A2AOpti
 	if strings.TrimSpace(host) == "" {
 		return nil, errEmptyHost
 	}
+	if err := validateHostScheme(host); err != nil {
+		return nil, err
+	}
 	cfg := &a2aConfig{conn: defaultClientConfig()}
 	for _, opt := range opts {
 		if opt == nil {
@@ -409,7 +412,8 @@ type BrokeredAccessRequest struct {
 	// ForUserID identifies the user the request is made for by object ID. It
 	// takes precedence over ForUser.
 	ForUserID int
-	// ForUser identifies the user the request is made for by name.
+	// ForUser identifies the user the request is made for by name. It is ignored
+	// when ForUserID is set.
 	ForUser string
 	// ForProvider names the identity provider that resolves ForUser, for example
 	// "local"; it is ignored when ForUserID is set.
@@ -417,16 +421,17 @@ type BrokeredAccessRequest struct {
 	// AssetID identifies the target asset by object ID. It takes precedence over
 	// AssetName.
 	AssetID int
-	// AssetName identifies the target asset by name.
+	// AssetName identifies the target asset by name. It is ignored when AssetID
+	// is set.
 	AssetName string
 	// AccountID identifies the target account by object ID. It takes precedence
 	// over AccountName.
 	AccountID int
 	// AccountName identifies the target account by name; omit it to request
-	// access to the asset itself.
+	// access to the asset itself. It is ignored when AccountID is set.
 	AccountName string
 	// AccountDomainName disambiguates AccountName when the account is directory
-	// managed.
+	// managed. It is ignored when AccountID is set.
 	AccountDomainName string
 	// IsEmergency marks the request as an emergency access request.
 	IsEmergency bool
@@ -451,7 +456,9 @@ type BrokeredAccessRequest struct {
 }
 
 // wire builds the ApplicationAccessRequest JSON body, omitting zero-valued
-// fields so the appliance applies its own defaults.
+// fields so the appliance applies its own defaults. When an ID and its
+// name-based counterpart are both set, the ID wins and the name form is omitted,
+// so the appliance never has to resolve a conflicting pair.
 func (r BrokeredAccessRequest) wire() map[string]any {
 	m := map[string]any{}
 	if r.AccessRequestType != "" {
@@ -459,35 +466,35 @@ func (r BrokeredAccessRequest) wire() map[string]any {
 	}
 	if r.ForUserID != 0 {
 		m["ForUserId"] = r.ForUserID
-	}
-	if r.ForUser != "" {
-		m["ForUser"] = r.ForUser
-	}
-	if r.ForProvider != "" {
-		m["ForProvider"] = r.ForProvider
+	} else {
+		if r.ForUser != "" {
+			m["ForUser"] = r.ForUser
+		}
+		if r.ForProvider != "" {
+			m["ForProvider"] = r.ForProvider
+		}
 	}
 	if r.AssetID != 0 {
 		m["AssetId"] = r.AssetID
-	}
-	if r.AssetName != "" {
+	} else if r.AssetName != "" {
 		m["AssetName"] = r.AssetName
 	}
 	if r.AccountID != 0 {
 		m["AccountId"] = r.AccountID
-	}
-	if r.AccountName != "" {
-		m["AccountName"] = r.AccountName
-	}
-	if r.AccountDomainName != "" {
-		m["AccountDomainName"] = r.AccountDomainName
+	} else {
+		if r.AccountName != "" {
+			m["AccountName"] = r.AccountName
+		}
+		if r.AccountDomainName != "" {
+			m["AccountDomainName"] = r.AccountDomainName
+		}
 	}
 	if r.IsEmergency {
 		m["IsEmergency"] = true
 	}
 	if r.ReasonCodeID != 0 {
 		m["ReasonCodeId"] = r.ReasonCodeID
-	}
-	if r.ReasonCode != "" {
+	} else if r.ReasonCode != "" {
 		m["ReasonCode"] = r.ReasonCode
 	}
 	if r.ReasonComment != "" {

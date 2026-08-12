@@ -135,6 +135,10 @@ func (ts *transportSet) client(id tlsIdentity) (*http.Client, error) {
 			return nil, errNoClientCert
 		}
 		tc.Certificates = ts.clientCerts
+		// The legacy A2A/RSTS client-certificate endpoints may request TLS
+		// renegotiation, so permit it only on this transport. Server-trust
+		// transports keep the default RenegotiateNever.
+		tc.Renegotiation = tls.RenegotiateFreelyAsClient
 		// The appliance's RSTS endpoint rejects client-certificate
 		// authentication over HTTP/2 (it responds HTTP_1_1_REQUIRED), so this
 		// transport must offer only HTTP/1.1 during ALPN.
@@ -194,6 +198,9 @@ func (ts *transportSet) websocketClient(id tlsIdentity) (*http.Client, error) {
 			return nil, errNoClientCert
 		}
 		tc.Certificates = ts.clientCerts
+		// Permit free client renegotiation only on the client-certificate
+		// transport, matching the API pool above.
+		tc.Renegotiation = tls.RenegotiateFreelyAsClient
 	}
 
 	tr := &http.Transport{

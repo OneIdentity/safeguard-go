@@ -53,6 +53,9 @@ func newClient(host string, opts ...Option) (*Client, error) {
 	if strings.TrimSpace(host) == "" {
 		return nil, errEmptyHost
 	}
+	if err := validateHostScheme(host); err != nil {
+		return nil, err
+	}
 	cfg := defaultClientConfig()
 	if err := cfg.apply(opts...); err != nil {
 		return nil, err
@@ -125,15 +128,14 @@ func (c *Client) Logout(ctx context.Context) error {
 	if prev := c.token.Load(); prev != nil && !prev.anonymous && !prev.token.IsZero() {
 		c.applianceLogout(ctx, prev.token)
 	}
-	// Swap in a terminal epoch and zero whatever token it displaces. Using Swap
-	// (rather than Load then Store) means a token installed by a refresh that
-	// raced this logout is still zeroed, and doRefresh's CAS on the observed
-	// (epoch, generation) can never resurrect the session because epoch 0 never
-	// matches.
-	if prev := c.token.Swap(&tokenState{epoch: 0, anonymous: true}); prev != nil {
-		s := prev.token
-		(&s).Zero()
-	}
+	// Swap in a terminal epoch so the local session is cleared and its epoch
+	// invalidated: doRefresh's CAS on the observed (epoch, generation) can never
+	// resurrect the session because epoch 0 never matches, even if a refresh
+	// raced this logout. The displaced token is released to the garbage collector
+	// rather than zeroed in place, because a concurrent request may still be
+	// reading its bytes to build an Authorization header and zeroing an aliased
+	// backing array under a reader is a data race.
+	c.token.Swap(&tokenState{epoch: 0, anonymous: true})
 	return nil
 }
 
@@ -157,19 +159,18 @@ func (c *Client) applianceLogout(ctx context.Context, token Secret) {
 	_ = resp.Body.Close()
 }
 
-// Close is terminal: it releases the transport pools and zeroes the in-memory
-// token. Close installs a terminal epoch so an in-flight refresh cannot
+// Close is terminal: it releases the transport pools and clears the in-memory
+// session. Close installs a terminal epoch so an in-flight refresh cannot
 // resurrect the session (doRefresh publishes only on the observed epoch, and
-// epoch 0 never matches) and zeroes whatever token that swap displaces. After
-// Close the client cannot be used. Close is idempotent.
+// epoch 0 never matches). The displaced token is released to the garbage
+// collector rather than zeroed in place, because a concurrent request may still
+// be reading its bytes and zeroing an aliased backing array under a reader is a
+// data race. After Close the client cannot be used. Close is idempotent.
 func (c *Client) Close() error {
 	if c.closed.Swap(true) {
 		return nil
 	}
-	if prev := c.token.Swap(&tokenState{epoch: 0, anonymous: true}); prev != nil {
-		s := prev.token
-		(&s).Zero()
-	}
+	c.token.Swap(&tokenState{epoch: 0, anonymous: true})
 	c.transports.Close()
 	return nil
 }

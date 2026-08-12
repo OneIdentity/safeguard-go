@@ -208,10 +208,16 @@ func WithAPIVersionOverride(version string) ReqOption {
 }
 
 // WithHost overrides the target host for this request only (parity with
-// PySafeguard host_override). The alternate host uses the same TLS configuration.
+// PySafeguard host_override). The alternate host uses the same TLS configuration
+// and must use the https scheme (a non-https host is rejected, as Safeguard is
+// https-only).
 func WithHost(host string) ReqOption {
 	return func(rc *requestConfig) error {
-		rc.host = strings.TrimSpace(host)
+		h := strings.TrimSpace(host)
+		if err := validateHostScheme(h); err != nil {
+			return err
+		}
+		rc.host = h
 		return nil
 	}
 }

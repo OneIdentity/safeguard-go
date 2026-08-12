@@ -19,15 +19,32 @@ func TestNewClientErrors(t *testing.T) {
 	if !errors.Is(err, errEmptyAPIVersion) {
 		t.Fatalf("newClient bad option error = %v, want errEmptyAPIVersion", err)
 	}
+
+	_, err = newClient("http://example.test")
+	if !errors.Is(err, errInsecureHostScheme) {
+		t.Fatalf("newClient http host error = %v, want errInsecureHostScheme", err)
+	}
 }
 
-func TestCloseZeroesTokenAndPreventsUse(t *testing.T) {
+func TestWithHostRejectsNonHTTPS(t *testing.T) {
+	rc := &requestConfig{}
+	if err := WithHost("http://other.test")(rc); !errors.Is(err, errInsecureHostScheme) {
+		t.Fatalf("WithHost http error = %v, want errInsecureHostScheme", err)
+	}
+	if err := WithHost("https://other.test")(rc); err != nil {
+		t.Fatalf("WithHost https error = %v, want nil", err)
+	}
+	if rc.host != "https://other.test" {
+		t.Fatalf("WithHost host = %q, want https://other.test", rc.host)
+	}
+}
+
+func TestCloseClearsSessionAndPreventsUse(t *testing.T) {
 	client, err := newClient("example.test")
 	if err != nil {
 		t.Fatalf("newClient: %v", err)
 	}
 	client.setUserToken(NewSecretString("token"), false)
-	state := client.token.Load()
 
 	if err := client.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
@@ -35,10 +52,13 @@ func TestCloseZeroesTokenAndPreventsUse(t *testing.T) {
 	if err := client.Close(); err != nil {
 		t.Fatalf("second Close: %v", err)
 	}
-	for _, b := range state.token.Expose() {
-		if b != 0 {
-			t.Fatalf("token byte after Close = %d, want 0", b)
-		}
+	// Close installs a terminal, anonymous epoch so an in-flight refresh cannot
+	// resurrect the session. The displaced token is released to the garbage
+	// collector rather than zeroed in place (zeroing an aliased backing array
+	// under a concurrent reader would be a data race).
+	state := client.token.Load()
+	if state == nil || !state.anonymous || state.epoch != 0 {
+		t.Fatalf("token state after Close = %+v, want anonymous epoch 0", state)
 	}
 
 	_, err = client.Invoke(context.Background(), MethodGet, Notification, "Status", nil)
@@ -199,4 +219,39 @@ func TestConcurrentGetAndSetUserTokenRace(t *testing.T) {
 	for err := range errCh {
 		t.Error(err)
 	}
+}
+
+// TestConcurrentAuthReadAndCloseRace exercises concurrent Authorization-header
+// reads while the client is torn down. It guards the token-zeroing data race:
+// Close (and Logout and a token refresh) must not wipe a token whose backing
+// array a concurrent reader may still be exposing. Run under -race to catch a
+// regression.
+func TestConcurrentAuthReadAndCloseRace(t *testing.T) {
+	client, err := newClient("example.test")
+	if err != nil {
+		t.Fatalf("newClient: %v", err)
+	}
+	client.setUserToken(NewSecretString("token-value"), false)
+
+	const readers = 8
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	wg.Add(readers)
+	for i := 0; i < readers; i++ {
+		go func() {
+			defer wg.Done()
+			<-start
+			for j := 0; j < 1000; j++ {
+				_ = client.currentAuthorization().headerValue()
+			}
+		}()
+	}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		<-start
+		_ = client.Close()
+	}()
+	close(start)
+	wg.Wait()
 }

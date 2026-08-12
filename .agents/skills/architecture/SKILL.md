@@ -102,9 +102,12 @@ atomically, and transport pools are internally synchronized. A monotonic
 **session epoch** guards the token swap so an in-flight refresh cannot resurrect
 a session that was closed or replaced:
 
-- `Close` installs a *terminal* epoch (0 never matches) and zeroes the displaced
-  token; `doRefresh` publishes only on the epoch it observed, so a concurrent
-  refresh landing after `Close`/`Logout` is discarded.
+- `Close` installs a *terminal* epoch (0 never matches) and clears the session;
+  `doRefresh` publishes only on the epoch it observed, so a concurrent refresh
+  landing after `Close`/`Logout` is discarded. The displaced token is released to
+  the garbage collector rather than zeroed in place: a concurrent request may
+  still be exposing its bytes to build an `Authorization` header, and zeroing an
+  aliased backing array under a reader would be a data race.
 - There is **no in-place reconnect**. Reconnecting means calling `Connect`
   again for a new client with a new epoch.
 - A persistent event listener bound to a user session stops permanently once
@@ -113,12 +116,19 @@ a session that was closed or replaced:
 
 ## TLS trust model
 
-Secure by default. Trust is configured through connection `Option`s:
-`WithCABundle` (add an internal CA), `WithServerCertValidator` (additive, can
-only further restrict — parity with .NET's callback), and `WithInsecureTLS`
-(bootstrap/dev/test only; disables verification on every transport including the
-event WebSocket; cannot combine with a validator). `WithInsecureTLS` is
-deliberately loud in docs and tests.
+Secure by default. Appliance hosts are **https-only**: a host supplied with a
+non-https scheme (e.g. `http://`) is rejected at construction (`newClient`,
+`NewA2AContext`) and by `WithHost`, returning `errInsecureHostScheme`. Trust is
+configured through connection `Option`s: `WithCABundle` (trust an internal CA,
+**replacing** the system trust store for server verification),
+`WithServerCertValidator` (additive, can only further restrict — parity with
+.NET's callback), and `WithInsecureTLS` (bootstrap/dev/test only; disables
+verification on every transport including the event WebSocket; cannot combine
+with a validator). `WithInsecureTLS` is deliberately loud in docs and tests.
+
+Free client TLS renegotiation is enabled **only** on the client-certificate
+transport (the legacy A2A/RSTS endpoints may request it); the shared server-trust
+transports keep the default `RenegotiateNever`.
 
 ## Secret boundary
 

@@ -129,22 +129,27 @@ func (l *EventListener) Start(ctx context.Context) error {
 	// Start cannot also proceed. On a connect failure we release the claim below
 	// so the caller may retry.
 	l.started = true
+	runCtx, cancel := context.WithCancel(ctx)
+	// Publish cancel and done before the synchronous connect so a Stop issued
+	// while the connect is still in flight can cancel it, rather than racing a
+	// nil cancel and becoming a no-op.
+	l.cancel = cancel
+	l.done = make(chan struct{})
+	done := l.done
 	l.mu.Unlock()
 
-	runCtx, cancel := context.WithCancel(ctx)
 	sess, err := l.conn.connect(runCtx)
 	if err != nil {
 		cancel()
 		l.mu.Lock()
 		l.started = false
+		l.cancel = nil
+		l.done = nil
 		l.mu.Unlock()
+		// Unblock any Stop that is already waiting on this done channel.
+		close(done)
 		return err
 	}
-
-	l.mu.Lock()
-	l.cancel = cancel
-	l.done = make(chan struct{})
-	l.mu.Unlock()
 
 	go func() {
 		serveErr := sess.serve(runCtx, l.reg)
@@ -152,13 +157,16 @@ func (l *EventListener) Start(ctx context.Context) error {
 		l.err = serveErr
 		l.mu.Unlock()
 		cancel()
-		close(l.done)
+		close(done)
 	}()
 	return nil
 }
 
-// Stop ends the listener and waits for its background goroutine to finish. It is
-// safe to call more than once and before Start returns.
+// Stop ends the listener and waits for it to stop. It cancels the listener,
+// which tears down the connection and closes Done. It is safe to call more than
+// once, before Start returns, and from within an event handler (a handler that
+// calls Stop does not deadlock: the read loop that closes Done runs on a
+// separate goroutine and is not blocked by the handler).
 func (l *EventListener) Stop() {
 	l.mu.Lock()
 	cancel := l.cancel
@@ -296,7 +304,9 @@ func (l *PersistentEventListener) setErr(err error) {
 	l.mu.Unlock()
 }
 
-// Stop ends the listener and waits for its loop to finish. It is idempotent.
+// Stop ends the listener and waits for its loop to finish. It is idempotent and
+// is safe to call from within an event handler (a handler that calls Stop does
+// not deadlock).
 func (l *PersistentEventListener) Stop() {
 	l.mu.Lock()
 	cancel := l.cancel

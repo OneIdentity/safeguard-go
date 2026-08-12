@@ -33,7 +33,7 @@ client, err := safeguard.Connect(ctx, "spp.example.com",
     safeguard.WithCABundle(caPEM),
 )
 if err != nil { /* ... */ }
-defer client.Close() // terminal: releases transports, zeroes the token
+defer client.Close() // terminal: releases transports and clears the session
 ```
 
 Connection options are applied **before** authentication, so certificate
@@ -154,7 +154,9 @@ set as a request header — that is the point of `ErrReservedHeader`.
 ResponseHeader})`, `WithLogger(*slog.Logger)`.
 
 - **`WithCABundle`** is the secure way to trust a self-signed/privately-issued
-  appliance cert.
+  appliance cert. It **replaces** the system trust store for server verification
+  rather than adding to it: once set, only the bundled CAs verify the appliance's
+  chain.
 - **`WithInsecureTLS`** disables chain and hostname verification on every
   transport, including the event WebSocket. Bootstrapping/dev/test only — it is
   loud and dangerous, and cannot combine with `WithServerCertValidator`.
@@ -172,9 +174,12 @@ func (c *Client) Upload(ctx, s, relURL string, r io.Reader, opts...) (Response, 
 func (c *Client) Download(ctx, s, relURL string, w io.Writer, opts...) (Response, error)
 ```
 
-- **`Stream`** returns a body the caller **must Close**; it is not buffered and
-  never retried, so a consumed stream cannot be replayed. It does not apply
-  `WithRequestTimeout` — control cancellation through `ctx`.
+- **`Stream`** returns a body the caller **must Close**; the response body is
+  not buffered and the returned stream is never retried. Before the stream is
+  delivered a 401 can still trigger one refresh-and-replay when the request body
+  is replayable (nil, string, `[]byte`, `json.RawMessage`, or a marshaled value;
+  a caller-supplied `io.Reader` is not). It does not apply `WithRequestTimeout` —
+  control cancellation through `ctx`.
 - **`Upload`** sends `r` as `application/octet-stream` without buffering.
 - **`Download`** streams the payload to `w`; `Response.Body` is nil on
   success, or holds the bounded error payload on a non-2xx status. Default
@@ -230,8 +235,9 @@ func (c *Client) Logout(ctx) error
 - **`Logout`** makes a best-effort appliance `Token/Logout`, then clears the
   local session and invalidates its epoch so an in-flight refresh cannot
   resurrect it. Idempotent; a no-op for anonymous.
-- **`Close`** is terminal — releases transports and zeroes the token; safe to
-  `defer` and idempotent.
+- **`Close`** is terminal — releases transports and clears the session (the
+  displaced token is released to the GC, not zeroed in place, to avoid racing a
+  concurrent header reader); safe to `defer` and idempotent.
 
 ## Secret
 

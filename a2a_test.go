@@ -256,3 +256,70 @@ func TestA2AClosedContext(t *testing.T) {
 		t.Fatalf("RetrievePassword after Close = %v, want ErrClosed", err)
 	}
 }
+
+func TestNewA2AContextRejectsNonHTTPS(t *testing.T) {
+	_, err := NewA2AContext("http://appliance.test", generateClientCertPEM(t), Secret{})
+	if !errors.Is(err, errInsecureHostScheme) {
+		t.Fatalf("NewA2AContext http host error = %v, want errInsecureHostScheme", err)
+	}
+}
+
+func TestBrokeredAccessRequestWirePrecedence(t *testing.T) {
+	// When both the ID and its name-based counterpart are set, the ID wins and
+	// the name form (and any field that only disambiguates the name) is omitted.
+	req := BrokeredAccessRequest{
+		AccessRequestType: AccessRequestPassword,
+		ForUserID:         11,
+		ForUser:           "alice",
+		ForProvider:       "local",
+		AssetID:           22,
+		AssetName:         "db-01",
+		AccountID:         33,
+		AccountName:       "svc",
+		AccountDomainName: "corp.test",
+		ReasonCodeID:      44,
+		ReasonCode:        "maintenance",
+	}
+	m := req.wire()
+
+	present := []struct {
+		key  string
+		want any
+	}{
+		{"ForUserId", 11},
+		{"AssetId", 22},
+		{"AccountId", 33},
+		{"ReasonCodeId", 44},
+	}
+	for _, p := range present {
+		if got, ok := m[p.key]; !ok || got != p.want {
+			t.Fatalf("wire[%q] = %v (present=%v), want %v", p.key, got, ok, p.want)
+		}
+	}
+	for _, k := range []string{"ForUser", "ForProvider", "AssetName", "AccountName", "AccountDomainName", "ReasonCode"} {
+		if _, ok := m[k]; ok {
+			t.Fatalf("wire[%q] present, want omitted when the ID form is set", k)
+		}
+	}
+
+	// With no IDs set, the name forms are used.
+	named := BrokeredAccessRequest{
+		AccessRequestType: AccessRequestPassword,
+		ForUser:           "alice",
+		ForProvider:       "local",
+		AssetName:         "db-01",
+		AccountName:       "svc",
+		AccountDomainName: "corp.test",
+		ReasonCode:        "maintenance",
+	}.wire()
+	for _, k := range []string{"ForUser", "ForProvider", "AssetName", "AccountName", "AccountDomainName", "ReasonCode"} {
+		if _, ok := named[k]; !ok {
+			t.Fatalf("wire[%q] omitted, want present when no ID form is set", k)
+		}
+	}
+	for _, k := range []string{"ForUserId", "AssetId", "AccountId", "ReasonCodeId"} {
+		if _, ok := named[k]; ok {
+			t.Fatalf("wire[%q] present, want omitted when unset", k)
+		}
+	}
+}

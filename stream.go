@@ -21,11 +21,16 @@ import (
 )
 
 // Stream performs a request and returns the response body as an io.ReadCloser
-// that the caller must Close. The body is not buffered and is never retried, so a
-// consumed stream cannot be replayed. On a non-2xx status Stream closes the body,
-// returns a nil reader, and reports a typed *APIError along with a Response
-// whose Body holds the (bounded) error payload. Unlike Invoke, Stream does not
-// apply WithRequestTimeout; a streaming caller controls cancellation through ctx.
+// that the caller must Close. The response body is streamed, not buffered. If the
+// appliance answers 401 before the body is delivered, Stream may refresh the token
+// and replay the request once, but only when the request body is replayable (nil,
+// a string, []byte, a json.RawMessage, or a marshaled value); a caller-supplied
+// io.Reader body is consumed on first send and is never replayed. Once Stream
+// returns a reader, that stream itself is never retried. On a non-2xx status
+// Stream closes the body, returns a nil reader, and reports a typed *APIError
+// along with a Response whose Body holds the (bounded) error payload. Unlike
+// Invoke, Stream does not apply WithRequestTimeout; a streaming caller controls
+// cancellation through ctx.
 func (c *Client) Stream(ctx context.Context, m HTTPMethod, s Service, relURL string, body any, opts ...ReqOption) (io.ReadCloser, Response, error) {
 	if c.isClosed() {
 		return nil, Response{}, ErrClosed

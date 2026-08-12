@@ -39,9 +39,10 @@ var errInvalidCABundle = errors.New("safeguard: CA bundle contained no valid cer
 type ServerCertValidator func(leaf *x509.Certificate, verifiedChains [][]*x509.Certificate) error
 
 // WithCABundle trusts the certificates in pemBytes (an internal PKI/appliance CA)
-// in addition to, and in place of, the system trust store for server
-// verification. It is the secure way to trust a self-signed or privately issued
-// appliance certificate.
+// for server verification, replacing the system trust store rather than adding to
+// it: once a bundle is set, only the certificates it contains are trusted to
+// verify the appliance's certificate chain. It is the secure way to trust a
+// self-signed or privately issued appliance certificate.
 func WithCABundle(pemBytes []byte) Option {
 	return func(cfg *clientConfig) error {
 		cp := make([]byte, len(pemBytes))
@@ -83,8 +84,11 @@ func (cfg *clientConfig) buildTLSConfig() (*tls.Config, error) {
 
 	tc := &tls.Config{
 		MinVersion: tls.VersionTLS12,
-		// Preserve free client renegotiation for legacy A2A client-cert transports.
-		Renegotiation: tls.RenegotiateFreelyAsClient,
+		// Renegotiation is left at the default (RenegotiateNever) here so the
+		// server-trust transports shared by every standard call never permit it.
+		// Free client renegotiation is enabled only on the client-certificate
+		// transport, where the legacy A2A/RSTS endpoints require it; see the
+		// clientCert branches in transportSet.client and transportSet.websocketClient.
 	}
 
 	if cfg.insecure {

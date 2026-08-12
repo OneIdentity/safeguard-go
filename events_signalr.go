@@ -271,8 +271,19 @@ func (s *eventSession) serve(ctx context.Context, reg *eventRegistry) error {
 			reg.dispatch(ev)
 		}
 	}()
-	defer wg.Wait()
-	defer close(dispatch)
+	defer func() {
+		close(dispatch)
+		// On a normal end of connection (clean server close or a read error) wait
+		// for in-flight handlers to drain so a reconnecting listener never runs
+		// old and new handlers concurrently. On a cancellation (Stop, or the
+		// owning context ending) this is a terminal shutdown, so return without
+		// waiting: a handler may itself have called Stop, and blocking on it here
+		// would deadlock. The dispatch goroutine observes the closed channel and
+		// exits on its own once the current handler returns.
+		if ctx.Err() == nil {
+			wg.Wait()
+		}
+	}()
 
 	// Keep-alive pings run independently of dispatch so a slow handler cannot
 	// stall them and trip the appliance's client timeout.

@@ -50,6 +50,11 @@ var errEmptyAPIVersion = errors.New("safeguard: API version must not be empty")
 // errEmptyHost is returned when a client is created without a host.
 var errEmptyHost = errors.New("safeguard: host must not be empty")
 
+// errInsecureHostScheme is returned when a host is supplied with a scheme other
+// than https. Safeguard appliances serve the API over HTTPS only, so an http://
+// (or any non-https) host is always a misconfiguration.
+var errInsecureHostScheme = errors.New("safeguard: host must use the https scheme")
+
 // errNoClientCert is returned when a client-certificate transport is requested
 // but no client certificate has been configured.
 var errNoClientCert = errors.New("safeguard: no client certificate configured")

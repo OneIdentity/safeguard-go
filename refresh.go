@@ -120,8 +120,13 @@ func (c *Client) doRefresh(observedEpoch, observedGen uint64) error {
 			refreshable: sess.refreshable,
 		}
 		if c.token.CompareAndSwap(prev, next) {
-			old := prev.token
-			(&old).Zero()
+			// The displaced token (prev.token) is not zeroed here: a concurrent
+			// request may still be reading its bytes to build an Authorization
+			// header, and zeroing an aliased backing array underneath a reader is
+			// a data race. The superseded token is released to the garbage
+			// collector instead. (Secret documents that zeroing is best-effort and
+			// provides no in-memory hardening, so this does not weaken any
+			// guarantee.)
 			return nil
 		}
 	}
