@@ -22,8 +22,9 @@ import (
 // Service identifies a Safeguard API service that a request is routed to.
 //
 // Authorization is never inferred from the Service or the URL; the service only
-// selects the base URL path. See the transport axis model for how TLS identity
-// and authorization are chosen independently of the service.
+// selects the base URL path. See the package overview's "Transport and
+// authorization" section for how TLS identity and authorization are chosen
+// independently of the service.
 type Service string
 
 // The Safeguard API services.
