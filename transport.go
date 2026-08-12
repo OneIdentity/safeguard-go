@@ -36,8 +36,7 @@ const (
 	// serverTrust presents no client certificate and verifies the server per the
 	// configured TLS validation mode. It is used for all standard calls.
 	serverTrust tlsIdentity = iota
-	// clientCert presents a client certificate (certificate login, A2A). The
-	// certificate material is configured in Phase 2/3.
+	// clientCert presents a client certificate (certificate login, A2A).
 	clientCert
 )
 
@@ -257,8 +256,8 @@ func (ts *transportSet) do(id tlsIdentity, req *http.Request) (*http.Response, e
 }
 
 // Close closes idle connections on every pool and marks the set closed. In-place
-// certificate replacement (Phase 2/3) rebuilds affected transports rather than
-// relying on CloseIdleConnections alone.
+// certificate replacement rebuilds affected transports rather than relying on
+// CloseIdleConnections alone.
 func (ts *transportSet) Close() {
 	ts.mu.Lock()
 	defer ts.mu.Unlock()

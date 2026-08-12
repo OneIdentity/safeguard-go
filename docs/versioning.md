@@ -5,7 +5,7 @@
 ## Version sequence
 
 - `v0.x` releases are pre-release candidates while the SDK is private or API-incomplete.
-- `v1.0.0` is the first GA release, feature-complete against the flows described in `plan.md`.
+- `v1.0.0` is the first GA release, feature-complete against the documented Safeguard authentication, Invoke, A2A, and event flows.
 - Breaking changes after `v1` require a new major module path suffix, for example `github.com/OneIdentity/safeguard-go/v2`.
 
 ## Release mechanics
@@ -14,7 +14,7 @@ Release builds are driven by Git tags (`vMAJOR.MINOR.PATCH`). Azure Pipelines va
 
 ## SDK before CSI
 
-The SDK ships before the CSI provider rework. The sequence from `plan.md` is:
+The SDK ships before the CSI provider rework. The sequence is:
 
 1. Develop the SDK privately and cut `v0.x` release candidates.
 2. Publish SDK `v1.0.0` and verify the Go module proxy and `pkg.go.dev`.

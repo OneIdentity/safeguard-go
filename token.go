@@ -23,9 +23,8 @@ import (
 
 // tokenState is the immutable, atomically swapped authentication state of a
 // client. It pairs the session epoch with a monotonic generation so refreshes
-// and 401 replays can be reasoned about without races (full single-flight refresh
-// and epoch-scoped replay land in Phase 2). The user token is held as a Secret
-// and never persisted or logged.
+// and 401 replays can be reasoned about without races. The user token is held as
+// a Secret and never persisted or logged.
 type tokenState struct {
 	// epoch is the immutable session identifier minted at Connect. A new login
 	// mints a new epoch; requests and refreshes capture their epoch and never

@@ -2,7 +2,7 @@
 
 Go SDK for the One Identity Safeguard Web API. Module path: `github.com/OneIdentity/safeguard-go`. Root package: `safeguard`. Go floor: 1.21.
 
-The public surface is implemented: authentication and `Connect`, the Invoke/Service API surface, A2A credential workflows, and SignalR event listeners, with `browser` and `devicecode` login add-ons. Keep changes aligned with the design in `plan.md`; do not add public API outside that plan without a maintainer decision.
+The public surface is implemented: authentication and `Connect`, the Invoke/Service API surface, A2A credential workflows, and SignalR event listeners, with `browser` and `devicecode` login add-ons. Keep changes aligned with the established public API design; do not add public API without a maintainer decision.
 
 ## Project structure
 

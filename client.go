@@ -26,10 +26,9 @@ import (
 // multiple goroutines: token state is immutable and swapped atomically, and the
 // transport pools are internally synchronized.
 //
-// In Phase 1 there is no public Connect; a client is built through the internal
-// seam (and, from Phase 2, through the credential constructors). A freshly built
-// client starts in an anonymous session, which is sufficient for the Notification
-// service and other anonymous endpoints.
+// A freshly built client starts in an anonymous session, which is sufficient for
+// the Notification service and other anonymous endpoints; Connect establishes an
+// authenticated session from a credential.
 type Client struct {
 	host       string
 	apiVersion string
@@ -37,8 +36,7 @@ type Client struct {
 	logger     *slog.Logger
 
 	// credential is the strategy that established this client's session. It is
-	// retained so a refreshable credential can mint a fresh token; the refresh
-	// machinery that reads it lands in a later Phase 2 chunk.
+	// retained so a refreshable credential can mint a fresh token.
 	credential Credential
 
 	// refresh serializes token refreshes so concurrent callers that observe the
@@ -50,8 +48,8 @@ type Client struct {
 }
 
 // newClient builds a client shell for host with the given connection options.
-// The client starts anonymous. This is the internal construction seam used by
-// tests and, from Phase 2, by the credential constructors and Connect.
+// The client starts anonymous. This is the internal construction seam used by the
+// credential constructors and Connect.
 func newClient(host string, opts ...Option) (*Client, error) {
 	if strings.TrimSpace(host) == "" {
 		return nil, errEmptyHost
@@ -75,8 +73,8 @@ func newClient(host string, opts ...Option) (*Client, error) {
 }
 
 // setUserToken installs a user token for the client, bumping the generation
-// within the current epoch. It is the internal seam that the concurrency tests
-// and (Phase 2) the login flows use to publish an exchanged token.
+// within the current epoch. It is the internal seam that the login flows use to
+// publish an exchanged token.
 func (c *Client) setUserToken(token Secret, expiry time.Time, refreshable bool) {
 	c.installSession(&session{token: token, expiry: expiry, refreshable: refreshable})
 }

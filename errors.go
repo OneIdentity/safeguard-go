@@ -51,7 +51,7 @@ var errEmptyAPIVersion = errors.New("safeguard: API version must not be empty")
 var errEmptyHost = errors.New("safeguard: host must not be empty")
 
 // errNoClientCert is returned when a client-certificate transport is requested
-// but no client certificate has been configured (populated in Phase 2/3).
+// but no client certificate has been configured.
 var errNoClientCert = errors.New("safeguard: no client certificate configured")
 
 // errNilCredential is returned when Connect is called without a credential.
