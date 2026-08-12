@@ -114,6 +114,11 @@ func (r Response) IsSuccess() bool // 2xx
 func (r Response) BodyString() string  // body as string
 ```
 
+`Response` is intentionally **not** a `fmt.Stringer`: bodies can contain retrieved
+credentials, so reading the body is the explicit `BodyString()` call rather than
+something an implicit `%v`/`%s` format or a log of a `Response` would trigger. Do
+not add a `String()` method back.
+
 ## Services
 
 `Service` only selects the base URL path; it never implies authorization.
