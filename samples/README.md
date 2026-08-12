@@ -42,9 +42,14 @@ verification entirely with `-insecure` while you get set up.
 | `anonymous` | Anonymous session against the Notification service |
 | `browser` | Interactive external-browser login (`browser` add-on) |
 | `devicecode` | Device authorization grant (`devicecode` add-on) |
+| `invoke` | Generic request with any method against any service |
+| `invoke-typed` | Typed request that decodes JSON into a Go struct |
+| `download` | Stream a response body straight to a file |
 | `a2a-password` | A2A password retrieval |
 | `a2a-privatekey` | A2A SSH private-key retrieval |
 | `a2a-apikey` | A2A API-key secret retrieval |
+| `a2a-discover` | List the accounts a certificate can retrieve |
+| `a2a-set-password` | A2A password write-back |
 | `a2a-broker` | Broker an access request on behalf of another user |
 | `events` | One-shot SignalR event listener |
 | `events-persistent` | Reconnecting SignalR event listener |
