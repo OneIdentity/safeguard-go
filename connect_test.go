@@ -379,6 +379,14 @@ func TestParseClientCertificateErrors(t *testing.T) {
 			t.Fatalf("separate key input: %v", err)
 		}
 	})
+	t.Run("key does not match certificate", func(t *testing.T) {
+		cert, _ := certAndKeyPEM(t)
+		_, otherKey := certAndKeyPEM(t)
+		_, err := parseClientCertificate(cert, Secret{}, otherKey)
+		if !errors.Is(err, errCertificateKeyMismatch) {
+			t.Fatalf("err = %v, want errCertificateKeyMismatch", err)
+		}
+	})
 }
 
 // --- certificate generation helpers -----------------------------------------

@@ -82,10 +82,11 @@ func WithA2AConnectionOptions(opts ...Option) A2AOption {
 // certificate in certPEM over mutual TLS. certPEM is concatenated PEM carrying
 // the leaf certificate, any intermediate chain, and the private key; supply the
 // key separately with WithA2APrivateKeyPEM when it lives in its own PEM input.
-// password decrypts an encrypted PEM private key. Like the Certificate
-// credential, only PEM material is accepted: PKCS#12 (.pfx/.p12) input is
-// rejected with a clear error, so convert it first (for example, `openssl pkcs12
-// -in cert.pfx -nodes -out cert.pem`).
+// password decrypts an encrypted PEM private key, whether it uses the modern
+// encrypted PKCS#8 (PBES2) format or the legacy DEK-Info format. Like the
+// Certificate credential, only PEM material is accepted: PKCS#12 (.pfx/.p12)
+// input is rejected with a clear error, so convert it first (for example,
+// `openssl pkcs12 -in cert.pfx -nodes -out cert.pem`).
 //
 // The certificate is parsed and validated here, so a bad certificate or password
 // surfaces immediately; no network call is made until the first retrieval.

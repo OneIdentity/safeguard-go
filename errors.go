@@ -87,6 +87,10 @@ var errNoPrivateKeyInPEM = errors.New("safeguard: no private key found in PEM ma
 // supplied without a password to decrypt it.
 var errEncryptedKeyNoPassword = errors.New("safeguard: encrypted private key requires a password")
 
+// errCertificateKeyMismatch is returned when the supplied private key does not
+// correspond to the leaf certificate's public key.
+var errCertificateKeyMismatch = errors.New("safeguard: private key does not match the certificate")
+
 // APIError is returned when a Safeguard API call completes with a non-2xx HTTP
 // status. It carries the HTTP status, the Safeguard error Code and Message when
 // the body was a recognizable Safeguard error object, and the appliance request

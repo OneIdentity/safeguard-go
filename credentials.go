@@ -16,6 +16,7 @@ package safeguard
 
 import (
 	"context"
+	"crypto"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
@@ -56,7 +57,9 @@ func UsernamePassword(provider, username string, password Secret) Credential {
 // over mutual TLS. certPEM is a concatenated PEM byte slice carrying the leaf
 // certificate, any intermediate chain, and the private key; supply the key
 // separately with WithPrivateKeyPEM when it lives in its own PEM input. password
-// decrypts an encrypted PEM private key. Like PySafeguard, this SDK accepts PEM
+// decrypts an encrypted PEM private key, whether it uses the modern encrypted
+// PKCS#8 (PBES2) format that current OpenSSL produces by default or the legacy
+// DEK-Info format. Like PySafeguard, this SDK accepts PEM
 // material only: PKCS#12 (.pfx/.p12) input is rejected with a clear error, so
 // convert it first (for example, `openssl pkcs12 -in cert.pfx -nodes -out
 // cert.pem`). The certificate material is parsed and validated at Connect time,
@@ -368,7 +371,27 @@ func parseClientCertificate(certPEM []byte, password Secret, keyPEM []byte) (tls
 		return tls.Certificate{}, &TransportError{Op: "parse-certificate", Err: err}
 	}
 	cert.Leaf = leaf
+	if err := verifyKeyMatchesLeaf(key, leaf); err != nil {
+		return tls.Certificate{}, err
+	}
 	return cert, nil
+}
+
+// verifyKeyMatchesLeaf confirms that the private key corresponds to the leaf
+// certificate's public key. Because parseClientCertificate assembles the
+// tls.Certificate by hand (rather than via tls.X509KeyPair), it must perform the
+// key/leaf match check itself; otherwise a mismatched certificate and key would
+// pass construction and fail later with an opaque TLS handshake error.
+func verifyKeyMatchesLeaf(key any, leaf *x509.Certificate) error {
+	signer, ok := key.(crypto.Signer)
+	if !ok {
+		return errCertificateKeyMismatch
+	}
+	pub, ok := leaf.PublicKey.(interface{ Equal(crypto.PublicKey) bool })
+	if !ok || !pub.Equal(signer.Public()) {
+		return errCertificateKeyMismatch
+	}
+	return nil
 }
 
 // isPrivateKeyBlock reports whether a PEM block type names a private key.
@@ -381,9 +404,23 @@ func isPrivateKeyBlock(blockType string) bool {
 	}
 }
 
-// decodeKeyBlock returns the DER bytes of a PEM key block, decrypting a legacy
-// encrypted PEM block with password when present.
+// decodeKeyBlock returns the DER bytes of a PEM key block. It decrypts a modern
+// encrypted PKCS#8 block ("ENCRYPTED PRIVATE KEY") with password via decryptPKCS8,
+// and a legacy DEK-Info encrypted PEM block with password via the standard
+// library. An unencrypted block is returned as-is.
 func decodeKeyBlock(block *pem.Block, password Secret) ([]byte, error) {
+	if block.Type == "ENCRYPTED PRIVATE KEY" {
+		if password.IsZero() {
+			return nil, errEncryptedKeyNoPassword
+		}
+		pw := password.Expose()
+		defer zeroBytes(pw)
+		der, err := decryptPKCS8(block.Bytes, pw)
+		if err != nil {
+			return nil, err
+		}
+		return der, nil
+	}
 	//nolint:staticcheck // x509.IsEncryptedPEMBlock/DecryptPEMBlock are the only
 	// stdlib path for legacy DEK-Info encrypted PEM keys still found in the wild.
 	if x509.IsEncryptedPEMBlock(block) {
