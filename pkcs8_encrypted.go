@@ -243,7 +243,10 @@ func prfHash(prf pkix.AlgorithmIdentifier) (func() hash.Hash, error) {
 
 // pkcs7Unpad removes PKCS#7 padding from a decrypted block. An invalid padding
 // almost always means the password was wrong, so it maps to errDecryptEncryptedKey.
-// The padding length is compared in constant time to avoid leaking it.
+// The padding bytes are compared in constant time as defense-in-depth; there is
+// no remote padding oracle in play here because this only ever decrypts the
+// caller's own locally supplied key, so padding-oracle timing is not part of the
+// threat model.
 func pkcs7Unpad(data []byte, blockSize int) ([]byte, error) {
 	if len(data) == 0 || len(data)%blockSize != 0 {
 		return nil, errDecryptEncryptedKey
