@@ -15,7 +15,7 @@
 package safeguard
 
 import (
-	"bytes"
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -99,10 +99,11 @@ func (s Secret) Len() int { return len(s.b) }
 // IsZero reports whether the Secret holds no bytes.
 func (s Secret) IsZero() bool { return len(s.b) == 0 }
 
-// Equal reports whether s and other hold identical bytes, using a constant-time
-// comparison to avoid leaking length-independent timing information.
+// Equal reports whether s and other hold identical bytes. It uses a constant-time
+// comparison (crypto/subtle) so it does not leak, through timing, where two
+// same-length secrets first differ. A length mismatch returns false.
 func (s Secret) Equal(other Secret) bool {
-	return bytes.Equal(s.b, other.b)
+	return subtle.ConstantTimeCompare(s.b, other.b) == 1
 }
 
 // Zero best-effort wipes the Secret's internal buffer in place. Any copies made

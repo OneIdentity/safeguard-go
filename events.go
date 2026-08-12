@@ -125,17 +125,23 @@ func (l *EventListener) Start(ctx context.Context) error {
 		l.mu.Unlock()
 		return ErrAlreadyStarted
 	}
+	// Claim the started flag before the (synchronous) connect so a concurrent
+	// Start cannot also proceed. On a connect failure we release the claim below
+	// so the caller may retry.
+	l.started = true
 	l.mu.Unlock()
 
 	runCtx, cancel := context.WithCancel(ctx)
 	sess, err := l.conn.connect(runCtx)
 	if err != nil {
 		cancel()
+		l.mu.Lock()
+		l.started = false
+		l.mu.Unlock()
 		return err
 	}
 
 	l.mu.Lock()
-	l.started = true
 	l.cancel = cancel
 	l.done = make(chan struct{})
 	l.mu.Unlock()

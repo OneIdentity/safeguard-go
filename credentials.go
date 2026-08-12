@@ -142,7 +142,7 @@ func PKCEHeadless(provider, username string, password Secret, opts ...PKCEOption
 }
 
 // PKCEOption configures a PKCE headless login.
-type PKCEOption func(*pkceConfig)
+type PKCEOption func(*pkceConfig) error
 
 // pkceConfig is the resolved PKCE configuration.
 type pkceConfig struct {
@@ -158,8 +158,9 @@ type SecondaryFactorFunc func(ctx context.Context, prompt string) (Secret, error
 // authentication during a PKCE headless login. Without it, a login that reaches a
 // secondary factor fails with ErrSecondaryFactorRequired.
 func WithSecondaryFactor(fn SecondaryFactorFunc) PKCEOption {
-	return func(pc *pkceConfig) {
+	return func(pc *pkceConfig) error {
 		pc.secondary = fn
+		return nil
 	}
 }
 
@@ -262,7 +263,12 @@ type pkceCredential struct {
 func (p *pkceCredential) establish(ctx context.Context, c *Client) (*session, error) {
 	cfg := &pkceConfig{}
 	for _, opt := range p.opts {
-		opt(cfg)
+		if opt == nil {
+			continue
+		}
+		if err := opt(cfg); err != nil {
+			return nil, err
+		}
 	}
 
 	httpClient, err := c.transports.client(serverTrust)

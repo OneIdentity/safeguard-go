@@ -111,7 +111,7 @@ type Response struct {
     RequestID  string // appliance correlation id, if present
 }
 func (r Response) IsSuccess() bool // 2xx
-func (r Response) String() string  // body as string
+func (r Response) BodyString() string  // body as string
 ```
 
 ## Services

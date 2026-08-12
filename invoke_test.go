@@ -191,7 +191,7 @@ func TestVerbHelpersHitMethodAndPath(t *testing.T) {
 			if err != nil {
 				t.Fatalf("call: %v", err)
 			}
-			if got := full.String(); got != tc.want {
+			if got := full.BodyString(); got != tc.want {
 				t.Fatalf("response = %q, want %q", got, tc.want)
 			}
 		})
@@ -212,7 +212,7 @@ func TestInvokeContentType(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Post default content type: %v", err)
 	}
-	if got, want := full.String(), "application/json"; got != want {
+	if got, want := full.BodyString(), "application/json"; got != want {
 		t.Fatalf("Content-Type = %q, want %q", got, want)
 	}
 
@@ -220,7 +220,7 @@ func TestInvokeContentType(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Post override content type: %v", err)
 	}
-	if got, want := full.String(), "text/csv"; got != want {
+	if got, want := full.BodyString(), "text/csv"; got != want {
 		t.Fatalf("Content-Type = %q, want %q", got, want)
 	}
 }
@@ -239,7 +239,7 @@ func TestInvokeQueryAndAPIVersionOverride(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
-	if got, want := full.String(), "/service/core/v3/Thing?k=v"; got != want {
+	if got, want := full.BodyString(), "/service/core/v3/Thing?k=v"; got != want {
 		t.Fatalf("path/query = %q, want %q", got, want)
 	}
 }

@@ -48,9 +48,12 @@ func (r Response) IsSuccess() bool {
 	return r.StatusCode >= 200 && r.StatusCode < 300
 }
 
-// String returns the response body as a string. It is a convenience for callers
-// that expect a textual (JSON/CSV) body.
-func (r Response) String() string {
+// BodyString returns the response body as a string. It is a convenience for
+// callers that expect a textual (JSON/CSV) body. Response deliberately does not
+// implement fmt.Stringer: bodies can contain retrieved credentials, so exposing
+// the body is an explicit call rather than something an implicit %v/%s format or
+// a log of a Response would trigger.
+func (r Response) BodyString() string {
 	return string(r.Body)
 }
 

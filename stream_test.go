@@ -99,7 +99,7 @@ func TestUploadPostsOctetStream(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Upload: %v", err)
 	}
-	if got, want := full.String(), "3:abc"; got != want {
+	if got, want := full.BodyString(), "3:abc"; got != want {
 		t.Fatalf("response = %q, want %q", got, want)
 	}
 }
