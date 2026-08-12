@@ -94,7 +94,7 @@ The SDK targets Safeguard API **v4** by default for Safeguard 7.0 and later. Ove
 
 ## Support
 
-One Identity open source projects are supported through GitHub issues and the One Identity Community. During private development, use the repository's internal review process described in `AGENTS.md`.
+One Identity open source projects are supported through GitHub issues and the [One Identity Community](https://www.oneidentity.com/community/). Open an issue in this repository to report a bug or request a feature.
 
 ## License
 
