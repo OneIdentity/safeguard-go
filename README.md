@@ -1,3 +1,7 @@
+[![Go Reference](https://pkg.go.dev/badge/github.com/OneIdentity/safeguard-go.svg)](https://pkg.go.dev/github.com/OneIdentity/safeguard-go)
+[![Release](https://img.shields.io/github/v/tag/OneIdentity/safeguard-go?label=release&sort=semver)](https://github.com/OneIdentity/safeguard-go/releases)
+[![License](https://img.shields.io/github/license/OneIdentity/safeguard-go.svg)](https://github.com/OneIdentity/safeguard-go/blob/main/LICENSE)
+
 # safeguard-go
 
 One Identity Safeguard SDK for Go.
