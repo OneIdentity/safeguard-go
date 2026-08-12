@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Command a2a-apikey demonstrates Application-to-Application (A2A) API-key secret
+// Command a2a-apikey demonstrates Application-to-Application (A2A) API-key
 // retrieval. The application authenticates with its client certificate over
 // mutual TLS and presents an API key that authorizes retrieval of one account's
 // API-key credentials.
@@ -51,15 +51,15 @@ func main() {
 	}
 	defer func() { _ = a2a.Close() }()
 
-	secrets, err := a2a.RetrieveAPIKey(ctx, apiKey)
+	keys, err := a2a.RetrieveAPIKey(ctx, apiKey)
 	if err != nil {
-		log.Fatalf("retrieve API key secret: %v", err)
+		log.Fatalf("retrieve API key: %v", err)
 	}
 
-	for _, s := range secrets {
+	for _, k := range keys {
 		// A real application would use ClientSecret, not print it.
-		fmt.Printf("API key %q (ClientId %s): %s\n", s.Name, s.ClientID, s.ClientSecret.ExposeString())
-		s.ClientSecret.Zero()
+		fmt.Printf("API key %q (ClientId %s): %s\n", k.Name, k.ClientID, k.ClientSecret.ExposeString())
+		k.ClientSecret.Zero()
 	}
 }
 
