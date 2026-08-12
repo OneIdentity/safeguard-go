@@ -20,7 +20,6 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
-	"time"
 
 	"github.com/OneIdentity/safeguard-go/internal/auth"
 )
@@ -41,7 +40,6 @@ type Credential interface {
 // onto a client via installSession.
 type session struct {
 	token       Secret
-	expiry      time.Time
 	anonymous   bool
 	refreshable bool
 }

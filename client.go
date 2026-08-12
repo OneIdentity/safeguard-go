@@ -19,7 +19,6 @@ import (
 	"log/slog"
 	"strings"
 	"sync/atomic"
-	"time"
 )
 
 // Client is a concurrency-safe Safeguard API client. It is safe for use by
@@ -75,8 +74,8 @@ func newClient(host string, opts ...Option) (*Client, error) {
 // setUserToken installs a user token for the client, bumping the generation
 // within the current epoch. It is the internal seam that the login flows use to
 // publish an exchanged token.
-func (c *Client) setUserToken(token Secret, expiry time.Time, refreshable bool) {
-	c.installSession(&session{token: token, expiry: expiry, refreshable: refreshable})
+func (c *Client) setUserToken(token Secret, refreshable bool) {
+	c.installSession(&session{token: token, refreshable: refreshable})
 }
 
 // installSession publishes s as the client's current session, bumping the
@@ -89,7 +88,6 @@ func (c *Client) installSession(s *session) {
 		next := &tokenState{
 			epoch:       1,
 			token:       s.token,
-			expiry:      s.expiry,
 			anonymous:   s.anonymous,
 			refreshable: s.refreshable,
 		}

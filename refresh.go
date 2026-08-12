@@ -116,7 +116,6 @@ func (c *Client) doRefresh(observedEpoch, observedGen uint64) error {
 			epoch:       prev.epoch,
 			generation:  prev.generation + 1,
 			token:       sess.token,
-			expiry:      sess.expiry,
 			anonymous:   sess.anonymous,
 			refreshable: sess.refreshable,
 		}

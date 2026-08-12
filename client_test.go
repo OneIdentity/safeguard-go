@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"sync"
 	"testing"
-	"time"
 )
 
 func TestNewClientErrors(t *testing.T) {
@@ -27,7 +26,7 @@ func TestCloseZeroesTokenAndPreventsUse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newClient: %v", err)
 	}
-	client.setUserToken(NewSecretString("token"), time.Now().Add(time.Hour), false)
+	client.setUserToken(NewSecretString("token"), false)
 	state := client.token.Load()
 
 	if err := client.Close(); err != nil {
@@ -63,7 +62,7 @@ func TestLogoutClearsSession(t *testing.T) {
 	}
 	defer closeClient(t, client)
 
-	client.setUserToken(NewSecretString("token"), time.Now().Add(time.Hour), false)
+	client.setUserToken(NewSecretString("token"), false)
 	if err := client.Logout(context.Background()); err != nil {
 		t.Fatalf("Logout: %v", err)
 	}
@@ -94,9 +93,9 @@ func TestSetUserTokenGenerationAndAuthorization(t *testing.T) {
 		t.Fatalf("initial currentAuthorization = %q, want empty", got)
 	}
 	before := client.token.Load()
-	client.setUserToken(NewSecretString("one"), time.Time{}, false)
+	client.setUserToken(NewSecretString("one"), false)
 	afterOne := client.token.Load()
-	client.setUserToken(NewSecretString("two"), time.Time{}, false)
+	client.setUserToken(NewSecretString("two"), false)
 	afterTwo := client.token.Load()
 
 	if afterOne.epoch != before.epoch || afterTwo.epoch != before.epoch {
@@ -124,15 +123,6 @@ func TestTokenLifetimeRemaining(t *testing.T) {
 	if !errors.Is(err, ErrNotAuthenticated) {
 		t.Fatalf("anonymous TokenLifetimeRemaining error = %v, want ErrNotAuthenticated", err)
 	}
-
-	client.setUserToken(NewSecretString("token"), time.Now().Add(time.Hour), false)
-	remaining, err := client.TokenLifetimeRemaining(context.Background())
-	if err != nil {
-		t.Fatalf("TokenLifetimeRemaining future: %v", err)
-	}
-	if remaining <= 0 {
-		t.Fatalf("remaining = %v, want positive", remaining)
-	}
 }
 
 func TestRefreshToken(t *testing.T) {
@@ -147,7 +137,7 @@ func TestRefreshToken(t *testing.T) {
 		t.Fatalf("anonymous RefreshToken error = %v, want ErrNotAuthenticated", err)
 	}
 
-	client.setUserToken(NewSecretString("token"), time.Time{}, false)
+	client.setUserToken(NewSecretString("token"), false)
 	err = client.RefreshToken(context.Background())
 	if !errors.Is(err, ErrNotRefreshable) {
 		t.Fatalf("token RefreshToken error = %v, want ErrNotRefreshable", err)
@@ -200,7 +190,7 @@ func TestConcurrentGetAndSetUserTokenRace(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := 0; i < workers*iterations; i++ {
-			client.setUserToken(NewSecretString(fmt.Sprintf("token-%d", i)), time.Now().Add(time.Hour), false)
+			client.setUserToken(NewSecretString(fmt.Sprintf("token-%d", i)), false)
 		}
 	}()
 

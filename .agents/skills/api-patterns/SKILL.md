@@ -224,10 +224,9 @@ func (c *Client) Logout(ctx) error
   session and `ErrNotRefreshable` for a bare token or an OAuth
   authorization-code flow (PKCE/browser/device-code). Tokens are long-lived;
   don't over-engineer refresh.
-- **`TokenLifetimeRemaining`** returns a cached expiry without a network call
-  when known; otherwise it consults Core `LoginMessage` once and reads the
+- **`TokenLifetimeRemaining`** consults Core `LoginMessage` once and reads the
   `X-TokenLifetimeRemaining` header. Returns `ErrNotAuthenticated` for an
-  anonymous session.
+  anonymous session, and zero (no error) when the header is absent.
 - **`Logout`** makes a best-effort appliance `Token/Logout`, then clears the
   local session and invalidates its epoch so an in-flight refresh cannot
   resurrect it. Idempotent; a no-op for anonymous.

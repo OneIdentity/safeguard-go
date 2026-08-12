@@ -34,9 +34,6 @@ type tokenState struct {
 	generation uint64
 	// token is the Safeguard user token, or a zero Secret for anonymous sessions.
 	token Secret
-	// expiry is the cached token expiry used for proactive refresh; zero means
-	// unknown.
-	expiry time.Time
 	// anonymous marks a session that carries no user token.
 	anonymous bool
 	// refreshable indicates the credential can mint a fresh token. A bare user
@@ -45,11 +42,10 @@ type tokenState struct {
 }
 
 // TokenLifetimeRemaining reports the remaining lifetime of the current user
-// token. When the client has a cached expiry it is returned without a network
-// call; otherwise the appliance is consulted once via the Core LoginMessage
-// endpoint, whose X-TokenLifetimeRemaining header carries the remaining minutes.
-// It returns ErrNotAuthenticated for an anonymous or absent session, and zero
-// with no error when the lifetime cannot be determined.
+// token. The appliance is consulted once via the Core LoginMessage endpoint,
+// whose X-TokenLifetimeRemaining header carries the remaining minutes. It returns
+// ErrNotAuthenticated for an anonymous or absent session, and zero with no error
+// when the lifetime cannot be determined.
 func (c *Client) TokenLifetimeRemaining(ctx context.Context) (time.Duration, error) {
 	if c.isClosed() {
 		return 0, ErrClosed
@@ -57,12 +53,6 @@ func (c *Client) TokenLifetimeRemaining(ctx context.Context) (time.Duration, err
 	ts := c.token.Load()
 	if ts == nil || ts.anonymous || ts.token.IsZero() {
 		return 0, ErrNotAuthenticated
-	}
-	if !ts.expiry.IsZero() {
-		if d := time.Until(ts.expiry); d > 0 {
-			return d, nil
-		}
-		return 0, nil
 	}
 	if ctx == nil {
 		ctx = context.Background()
