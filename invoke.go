@@ -39,20 +39,20 @@ const (
 	MethodDelete HTTPMethod = http.MethodDelete
 )
 
-// Invoke performs a Safeguard API call and returns the FullResponse. The body is
+// Invoke performs a Safeguard API call and returns the Response. The body is
 // encoded by type: nil is an empty body; string and json.RawMessage are sent as
 // application/json; []byte and io.Reader are sent as application/octet-stream;
 // any other value is JSON-marshaled. A caller may override the content type with
-// WithHeader. On a non-2xx status Invoke returns the populated FullResponse along
+// WithHeader. On a non-2xx status Invoke returns the populated Response along
 // with a typed *APIError (or its 401/403/404 specializations). The response body
 // is always read and closed.
-func (c *Client) Invoke(ctx context.Context, m HTTPMethod, s Service, relURL string, body any, opts ...ReqOption) (FullResponse, error) {
+func (c *Client) Invoke(ctx context.Context, m HTTPMethod, s Service, relURL string, body any, opts ...ReqOption) (Response, error) {
 	if c.isClosed() {
-		return FullResponse{}, ErrClosed
+		return Response{}, ErrClosed
 	}
 	rc, err := applyReqOptions(opts...)
 	if err != nil {
-		return FullResponse{}, err
+		return Response{}, err
 	}
 	if rc.timeout > 0 {
 		var cancel context.CancelFunc
@@ -68,15 +68,15 @@ func (c *Client) Invoke(ctx context.Context, m HTTPMethod, s Service, relURL str
 	}
 	resp, err := c.send(ctx, serverTrust, newReq, bodyReplayable(body))
 	if err != nil {
-		return FullResponse{}, err
+		return Response{}, err
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return FullResponse{}, &TransportError{Op: "read-body", Err: sanitizeError(err)}
+		return Response{}, &TransportError{Op: "read-body", Err: sanitizeError(err)}
 	}
-	full := FullResponse{
+	full := Response{
 		StatusCode: resp.StatusCode,
 		Headers:    resp.Header,
 		Body:       data,
@@ -89,22 +89,22 @@ func (c *Client) Invoke(ctx context.Context, m HTTPMethod, s Service, relURL str
 }
 
 // Get performs a GET request.
-func (c *Client) Get(ctx context.Context, s Service, relURL string, opts ...ReqOption) (FullResponse, error) {
+func (c *Client) Get(ctx context.Context, s Service, relURL string, opts ...ReqOption) (Response, error) {
 	return c.Invoke(ctx, MethodGet, s, relURL, nil, opts...)
 }
 
 // Post performs a POST request with the given body.
-func (c *Client) Post(ctx context.Context, s Service, relURL string, body any, opts ...ReqOption) (FullResponse, error) {
+func (c *Client) Post(ctx context.Context, s Service, relURL string, body any, opts ...ReqOption) (Response, error) {
 	return c.Invoke(ctx, MethodPost, s, relURL, body, opts...)
 }
 
 // Put performs a PUT request with the given body.
-func (c *Client) Put(ctx context.Context, s Service, relURL string, body any, opts ...ReqOption) (FullResponse, error) {
+func (c *Client) Put(ctx context.Context, s Service, relURL string, body any, opts ...ReqOption) (Response, error) {
 	return c.Invoke(ctx, MethodPut, s, relURL, body, opts...)
 }
 
 // Delete performs a DELETE request.
-func (c *Client) Delete(ctx context.Context, s Service, relURL string, opts ...ReqOption) (FullResponse, error) {
+func (c *Client) Delete(ctx context.Context, s Service, relURL string, opts ...ReqOption) (Response, error) {
 	return c.Invoke(ctx, MethodDelete, s, relURL, nil, opts...)
 }
 

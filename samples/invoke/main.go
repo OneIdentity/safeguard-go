@@ -73,7 +73,7 @@ func main() {
 
 	resp, err := client.Invoke(ctx, m, svc, *relURL, reqBody)
 	if err != nil {
-		// Invoke returns the populated FullResponse alongside a typed error on a
+		// Invoke returns the populated Response alongside a typed error on a
 		// non-2xx status, so the status and body are still worth printing.
 		log.Fatalf("%s %s %s -> %d: %v", m, svc, *relURL, resp.StatusCode, err)
 	}

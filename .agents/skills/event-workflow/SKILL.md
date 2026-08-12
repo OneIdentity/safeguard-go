@@ -26,13 +26,13 @@ func (a *A2AContext) NewEventListener(apiKey Secret) *EventListener
 func (a *A2AContext) NewPersistentEventListener(apiKey Secret) *PersistentEventListener
 
 // both listener types share these methods:
-func RegisterEventHandler(name string, h EventHandler)
+func RegisterEventHandler(name string, h EventHandlerFunc)
 func Start(ctx context.Context) error
 func Stop()
 func Done() <-chan struct{}
 func Err() error
 
-type EventHandler func(name string, data json.RawMessage)
+type EventHandlerFunc func(name string, data json.RawMessage)
 ```
 
 ### Usage
@@ -89,7 +89,7 @@ Safeguard sometimes delivers an event whose SignalR "target" is a numeric
 string rather than the event name. The listener always reads the **real event
 name from the payload's `Data.EventName`** (`eventNameFromData`, which also
 handles a `Data` that arrives as an array). The `name` passed to your
-`EventHandler` is this resolved name. Preserve this behavior — handler matching
+`EventHandlerFunc` is this resolved name. Preserve this behavior — handler matching
 depends on it.
 
 ## SignalR-over-WebSocket internals (owned by the SDK)

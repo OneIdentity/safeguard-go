@@ -150,9 +150,9 @@ const (
 	KeyFormatPuTTY KeyFormat = "Putty"
 )
 
-// APIKeySecret is one API key credential retrieved for a registered account. The
+// APIKey is one API key credential retrieved for a registered account. The
 // ClientSecret is wrapped in a Secret; the surrounding metadata is not sensitive.
-type APIKeySecret struct {
+type APIKey struct {
 	// ID is the API key's object identifier.
 	ID int
 	// Name is the API key's name.
@@ -194,9 +194,9 @@ func (a *A2AContext) RetrievePrivateKey(ctx context.Context, apiKey Secret, form
 	return decodeSecretString(full.Body)
 }
 
-// RetrieveAPIKeySecret retrieves the API key credentials of the account
+// RetrieveAPIKey retrieves the API key credentials of the account
 // identified by apiKey. The appliance returns one entry per configured API key.
-func (a *A2AContext) RetrieveAPIKeySecret(ctx context.Context, apiKey Secret) ([]APIKeySecret, error) {
+func (a *A2AContext) RetrieveAPIKey(ctx context.Context, apiKey Secret) ([]APIKey, error) {
 	full, err := a.a2aDo(ctx, MethodGet, "Credentials", nil, a2aAuth(apiKey), url.Values{"type": {"ApiKey"}})
 	if err != nil {
 		return nil, err
@@ -215,9 +215,9 @@ func (a *A2AContext) RetrieveAPIKeySecret(ctx context.Context, apiKey Secret) ([
 	if err := json.Unmarshal(full.Body, &raw); err != nil {
 		return nil, &TransportError{Op: "decode", Err: err}
 	}
-	out := make([]APIKeySecret, len(raw))
+	out := make([]APIKey, len(raw))
 	for i, r := range raw {
-		out[i] = APIKeySecret{
+		out[i] = APIKey{
 			ID:             r.ID,
 			Name:           r.Name,
 			Description:    r.Description,
@@ -274,7 +274,7 @@ type A2ARetrievableAccount struct {
 //
 // The returned entries carry the per-account APIKey, so a caller can discover an
 // account here and pass its APIKey straight to RetrievePassword,
-// RetrievePrivateKey, or RetrieveAPIKeySecret. Because an entry does not record
+// RetrievePrivateKey, or RetrieveAPIKey. Because an entry does not record
 // which credential type it was registered for, a caller that registered an
 // account for more than one type must track that mapping itself.
 func (a *A2AContext) GetRetrievableAccounts(ctx context.Context, filter string) ([]A2ARetrievableAccount, error) {
@@ -583,49 +583,49 @@ func jsonSecretBody(s Secret) (json.RawMessage, error) {
 
 // a2aDo sends a single request to the A2A service over the client-certificate
 // transport with the given authorization and returns the fully read
-// FullResponse.
-func (a *A2AContext) a2aDo(ctx context.Context, m HTTPMethod, relURL string, body any, auth authorization, params url.Values) (FullResponse, error) {
+// Response.
+func (a *A2AContext) a2aDo(ctx context.Context, m HTTPMethod, relURL string, body any, auth authorization, params url.Values) (Response, error) {
 	return a.doService(ctx, A2A, m, relURL, body, auth, params)
 }
 
 // doService sends a single request to the given service over the
 // client-certificate transport with the given authorization and returns the
-// fully read FullResponse. Unlike the Client Invoke path it never refreshes or
+// fully read Response. Unlike the Client Invoke path it never refreshes or
 // replays: an A2A API key is static, so there is nothing to refresh, and the
 // certificate identity is fixed for the context.
-func (a *A2AContext) doService(ctx context.Context, service Service, m HTTPMethod, relURL string, body any, auth authorization, params url.Values) (FullResponse, error) {
+func (a *A2AContext) doService(ctx context.Context, service Service, m HTTPMethod, relURL string, body any, auth authorization, params url.Values) (Response, error) {
 	if a.closed.Load() {
-		return FullResponse{}, ErrClosed
+		return Response{}, ErrClosed
 	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	base, err := service.baseURL(a.host, a.apiVersion)
 	if err != nil {
-		return FullResponse{}, err
+		return Response{}, err
 	}
 	reader, contentType, err := encodeBody(body)
 	if err != nil {
-		return FullResponse{}, err
+		return Response{}, err
 	}
 	req, err := buildHTTPRequest(ctx, m, joinURL(base, relURL, params), reader, auth, "", nil)
 	if err != nil {
-		return FullResponse{}, err
+		return Response{}, err
 	}
 	if contentType != "" && req.Header.Get("Content-Type") == "" {
 		req.Header.Set("Content-Type", contentType)
 	}
 	resp, err := a.transports.do(clientCert, req)
 	if err != nil {
-		return FullResponse{}, err
+		return Response{}, err
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return FullResponse{}, &TransportError{Op: "read-body", Err: sanitizeError(err)}
+		return Response{}, &TransportError{Op: "read-body", Err: sanitizeError(err)}
 	}
-	full := FullResponse{
+	full := Response{
 		StatusCode: resp.StatusCode,
 		Headers:    resp.Header,
 		Body:       data,

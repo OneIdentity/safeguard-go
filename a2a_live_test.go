@@ -92,10 +92,10 @@ func TestLiveA2ARetrieve(t *testing.T) {
 		}
 	})
 
-	t.Run("APIKeySecret", func(t *testing.T) {
-		secrets, err := a2a.RetrieveAPIKeySecret(ctx, safeguard.NewSecretString(env.APIKeyAPIKey))
+	t.Run("APIKey", func(t *testing.T) {
+		secrets, err := a2a.RetrieveAPIKey(ctx, safeguard.NewSecretString(env.APIKeyAPIKey))
 		if err != nil {
-			t.Fatalf("RetrieveAPIKeySecret: %v", err)
+			t.Fatalf("RetrieveAPIKey: %v", err)
 		}
 		if len(secrets) != 1 {
 			t.Fatalf("retrieved %d API key secrets, want 1", len(secrets))

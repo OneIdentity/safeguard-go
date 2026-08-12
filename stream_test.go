@@ -29,7 +29,7 @@ func TestStreamSuccess(t *testing.T) {
 		t.Fatalf("StatusCode = %d, want %d", full.StatusCode, http.StatusOK)
 	}
 	if full.Body != nil {
-		t.Fatalf("FullResponse.Body = %q, want nil", string(full.Body))
+		t.Fatalf("Response.Body = %q, want nil", string(full.Body))
 	}
 	body, err := io.ReadAll(reader)
 	if err != nil {
@@ -67,7 +67,7 @@ func TestStreamNon2xx(t *testing.T) {
 		t.Fatalf("StatusCode = %d, want %d", full.StatusCode, http.StatusBadRequest)
 	}
 	if got, wantLen := len(full.Body), maxStoredErrorBody+1; got != wantLen {
-		t.Fatalf("FullResponse.Body length = %d, want %d", got, wantLen)
+		t.Fatalf("Response.Body length = %d, want %d", got, wantLen)
 	}
 	if got, wantLen := len(apiErr.RawBody()), maxStoredErrorBody; got != wantLen {
 		t.Fatalf("RawBody length = %d, want %d", got, wantLen)
@@ -123,7 +123,7 @@ func TestDownloadSuccess(t *testing.T) {
 		t.Fatalf("StatusCode = %d, want %d", full.StatusCode, http.StatusOK)
 	}
 	if full.Body != nil {
-		t.Fatalf("FullResponse.Body = %q, want nil", string(full.Body))
+		t.Fatalf("Response.Body = %q, want nil", string(full.Body))
 	}
 	if got, want := buf.String(), "download body"; got != want {
 		t.Fatalf("downloaded body = %q, want %q", got, want)
@@ -151,7 +151,7 @@ func TestDownloadNon2xx(t *testing.T) {
 		t.Fatalf("StatusCode = %d, want %d", full.StatusCode, http.StatusBadRequest)
 	}
 	if got, want := string(full.Body), `{"Code":1,"Message":"bad"}`; got != want {
-		t.Fatalf("FullResponse.Body = %q, want %q", got, want)
+		t.Fatalf("Response.Body = %q, want %q", got, want)
 	}
 	if buf.Len() != 0 {
 		t.Fatalf("download buffer length = %d, want 0", buf.Len())

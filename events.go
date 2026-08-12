@@ -25,13 +25,13 @@ import (
 	"time"
 )
 
-// EventHandler receives an event it was registered for: name is the resolved
+// EventHandlerFunc receives an event it was registered for: name is the resolved
 // event name (with the numeric-name workaround applied) and data is the raw JSON
 // payload for the caller to decode. Handlers run on a dispatcher goroutine off
 // the read loop; a panic in a handler is recovered and does not stop the
 // listener. A handler should not block indefinitely, as a slow handler applies
 // backpressure to later events.
-type EventHandler func(name string, data json.RawMessage)
+type EventHandlerFunc func(name string, data json.RawMessage)
 
 // decodedEvent is one event decoded off the wire, carried from the read loop to
 // the dispatcher.
@@ -45,16 +45,16 @@ type decodedEvent struct {
 // persistent listener keeps its handlers without re-registration.
 type eventRegistry struct {
 	mu       sync.RWMutex
-	handlers map[string][]EventHandler
+	handlers map[string][]EventHandlerFunc
 	logger   *slog.Logger
 }
 
 func newEventRegistry(logger *slog.Logger) *eventRegistry {
-	return &eventRegistry{handlers: map[string][]EventHandler{}, logger: logger}
+	return &eventRegistry{handlers: map[string][]EventHandlerFunc{}, logger: logger}
 }
 
 // register adds a handler for the named event.
-func (r *eventRegistry) register(name string, h EventHandler) {
+func (r *eventRegistry) register(name string, h EventHandlerFunc) {
 	if h == nil {
 		return
 	}
@@ -75,7 +75,7 @@ func (r *eventRegistry) dispatch(ev decodedEvent) {
 	}
 }
 
-func (r *eventRegistry) invoke(h EventHandler, ev decodedEvent) {
+func (r *eventRegistry) invoke(h EventHandlerFunc, ev decodedEvent) {
 	defer func() {
 		if p := recover(); p != nil && r.logger != nil {
 			r.logger.Error("safeguard: event handler panicked", "event", ev.name, "panic", p)
@@ -107,7 +107,7 @@ func newEventListener(conn *eventConn) *EventListener {
 // RegisterEventHandler registers h to receive events named name. Registering the
 // same name more than once adds an additional handler. Matching is
 // case-insensitive.
-func (l *EventListener) RegisterEventHandler(name string, h EventHandler) {
+func (l *EventListener) RegisterEventHandler(name string, h EventHandlerFunc) {
 	l.reg.register(name, h)
 }
 
@@ -204,7 +204,7 @@ func newPersistentEventListener(conn *eventConn) *PersistentEventListener {
 
 // RegisterEventHandler registers h to receive events named name. Handlers survive
 // reconnects. Matching is case-insensitive.
-func (l *PersistentEventListener) RegisterEventHandler(name string, h EventHandler) {
+func (l *PersistentEventListener) RegisterEventHandler(name string, h EventHandlerFunc) {
 	l.reg.register(name, h)
 }
 

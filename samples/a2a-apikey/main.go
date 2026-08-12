@@ -51,7 +51,7 @@ func main() {
 	}
 	defer func() { _ = a2a.Close() }()
 
-	secrets, err := a2a.RetrieveAPIKeySecret(ctx, apiKey)
+	secrets, err := a2a.RetrieveAPIKey(ctx, apiKey)
 	if err != nil {
 		log.Fatalf("retrieve API key secret: %v", err)
 	}

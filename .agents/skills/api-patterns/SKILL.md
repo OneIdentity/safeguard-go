@@ -72,14 +72,14 @@ lifecycle).
 ## Invoke surface
 
 The client exposes convenience verbs plus a general `Invoke`, all returning a
-`FullResponse`:
+`Response`:
 
 ```go
-func (c *Client) Get(ctx, s Service, relURL string, opts ...ReqOption) (FullResponse, error)
-func (c *Client) Post(ctx, s Service, relURL string, body any, opts ...ReqOption) (FullResponse, error)
-func (c *Client) Put(ctx, s Service, relURL string, body any, opts ...ReqOption) (FullResponse, error)
-func (c *Client) Delete(ctx, s Service, relURL string, opts ...ReqOption) (FullResponse, error)
-func (c *Client) Invoke(ctx, m HTTPMethod, s Service, relURL string, body any, opts ...ReqOption) (FullResponse, error)
+func (c *Client) Get(ctx, s Service, relURL string, opts ...ReqOption) (Response, error)
+func (c *Client) Post(ctx, s Service, relURL string, body any, opts ...ReqOption) (Response, error)
+func (c *Client) Put(ctx, s Service, relURL string, body any, opts ...ReqOption) (Response, error)
+func (c *Client) Delete(ctx, s Service, relURL string, opts ...ReqOption) (Response, error)
+func (c *Client) Invoke(ctx, m HTTPMethod, s Service, relURL string, body any, opts ...ReqOption) (Response, error)
 ```
 
 **Body encoding by type** (Invoke/Post/Put): `nil` → empty; `string` and
@@ -101,17 +101,17 @@ type Me struct{ Id int; Name string }
 me, err := safeguard.InvokeTyped[Me](ctx, client, safeguard.MethodGet, safeguard.Core, "Me", nil)
 ```
 
-### FullResponse
+### Response
 
 ```go
-type FullResponse struct {
+type Response struct {
     StatusCode int
     Headers    http.Header
     Body       []byte // nil for streaming calls
     RequestID  string // appliance correlation id, if present
 }
-func (r FullResponse) IsSuccess() bool // 2xx
-func (r FullResponse) String() string  // body as string
+func (r Response) IsSuccess() bool // 2xx
+func (r Response) String() string  // body as string
 ```
 
 ## Services
@@ -162,23 +162,23 @@ ResponseHeader})`, `WithLogger(*slog.Logger)`.
 ## Streaming, upload, download
 
 ```go
-func (c *Client) Stream(ctx, m, s, relURL, body, opts...) (io.ReadCloser, FullResponse, error)
-func (c *Client) Upload(ctx, s, relURL string, r io.Reader, opts...) (FullResponse, error)
-func (c *Client) Download(ctx, s, relURL string, w io.Writer, opts...) (FullResponse, error)
+func (c *Client) Stream(ctx, m, s, relURL, body, opts...) (io.ReadCloser, Response, error)
+func (c *Client) Upload(ctx, s, relURL string, r io.Reader, opts...) (Response, error)
+func (c *Client) Download(ctx, s, relURL string, w io.Writer, opts...) (Response, error)
 ```
 
 - **`Stream`** returns a body the caller **must Close**; it is not buffered and
   never retried, so a consumed stream cannot be replayed. It does not apply
   `WithRequestTimeout` — control cancellation through `ctx`.
 - **`Upload`** sends `r` as `application/octet-stream` without buffering.
-- **`Download`** streams the payload to `w`; `FullResponse.Body` is nil on
+- **`Download`** streams the payload to `w`; `Response.Body` is nil on
   success, or holds the bounded error payload on a non-2xx status. Default
   Accept is `application/octet-stream`; override with `WithAccept`.
 
 ## Errors
 
 Non-2xx responses return a typed error **alongside** a populated
-`FullResponse`.
+`Response`.
 
 ```go
 type APIError struct { StatusCode int; Code int; Message string; RequestID string }

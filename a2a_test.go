@@ -113,7 +113,7 @@ func TestA2ARetrievePrivateKeyFormat(t *testing.T) {
 	}
 }
 
-func TestA2ARetrieveAPIKeySecret(t *testing.T) {
+func TestA2ARetrieveAPIKey(t *testing.T) {
 	a2a, server := newTestA2AContext(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if got := r.URL.RawQuery; got != "type=ApiKey" {
 			t.Errorf("query = %q, want type=ApiKey", got)
@@ -127,9 +127,9 @@ func TestA2ARetrieveAPIKeySecret(t *testing.T) {
 	apiKey := NewSecretString("k")
 	defer apiKey.Zero()
 
-	keys, err := a2a.RetrieveAPIKeySecret(context.Background(), apiKey)
+	keys, err := a2a.RetrieveAPIKey(context.Background(), apiKey)
 	if err != nil {
-		t.Fatalf("RetrieveAPIKeySecret: %v", err)
+		t.Fatalf("RetrieveAPIKey: %v", err)
 	}
 	if len(keys) != 1 {
 		t.Fatalf("len(keys) = %d, want 1", len(keys))

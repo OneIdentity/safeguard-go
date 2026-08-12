@@ -177,13 +177,13 @@ func TestVerbHelpersHitMethodAndPath(t *testing.T) {
 
 	cases := []struct {
 		name string
-		call func() (FullResponse, error)
+		call func() (Response, error)
 		want string
 	}{
-		{name: "get", call: func() (FullResponse, error) { return client.Get(context.Background(), Core, "Thing") }, want: "GET /service/core/v4/Thing"},
-		{name: "post", call: func() (FullResponse, error) { return client.Post(context.Background(), Core, "Thing", "body") }, want: "POST /service/core/v4/Thing"},
-		{name: "put", call: func() (FullResponse, error) { return client.Put(context.Background(), Core, "Thing", "body") }, want: "PUT /service/core/v4/Thing"},
-		{name: "delete", call: func() (FullResponse, error) { return client.Delete(context.Background(), Core, "Thing") }, want: "DELETE /service/core/v4/Thing"},
+		{name: "get", call: func() (Response, error) { return client.Get(context.Background(), Core, "Thing") }, want: "GET /service/core/v4/Thing"},
+		{name: "post", call: func() (Response, error) { return client.Post(context.Background(), Core, "Thing", "body") }, want: "POST /service/core/v4/Thing"},
+		{name: "put", call: func() (Response, error) { return client.Put(context.Background(), Core, "Thing", "body") }, want: "PUT /service/core/v4/Thing"},
+		{name: "delete", call: func() (Response, error) { return client.Delete(context.Background(), Core, "Thing") }, want: "DELETE /service/core/v4/Thing"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

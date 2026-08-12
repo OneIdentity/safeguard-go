@@ -24,13 +24,13 @@ import (
 // is best-effort: anonymous endpoints often omit it entirely.
 var requestIDHeaders = []string{"X-Request-Id", "X-Request-ID", "Request-Id"}
 
-// FullResponse is the complete result of an Invoke-style call: the HTTP status,
+// Response is the complete result of an Invoke-style call: the HTTP status,
 // the response headers, the fully read (non-streaming) body, and the appliance
 // request identifier when one is present.
 //
 // For streaming calls the body is delivered separately and Body is nil; the
 // headers and RequestID still describe the response.
-type FullResponse struct {
+type Response struct {
 	// StatusCode is the HTTP status code of the response.
 	StatusCode int
 	// Headers holds the response headers. Multi-value headers are preserved.
@@ -44,13 +44,13 @@ type FullResponse struct {
 }
 
 // IsSuccess reports whether the status code is in the 2xx range.
-func (r FullResponse) IsSuccess() bool {
+func (r Response) IsSuccess() bool {
 	return r.StatusCode >= 200 && r.StatusCode < 300
 }
 
 // String returns the response body as a string. It is a convenience for callers
 // that expect a textual (JSON/CSV) body.
-func (r FullResponse) String() string {
+func (r Response) String() string {
 	return string(r.Body)
 }
 

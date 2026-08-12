@@ -23,16 +23,16 @@ import (
 // Stream performs a request and returns the response body as an io.ReadCloser
 // that the caller must Close. The body is not buffered and is never retried, so a
 // consumed stream cannot be replayed. On a non-2xx status Stream closes the body,
-// returns a nil reader, and reports a typed *APIError along with a FullResponse
+// returns a nil reader, and reports a typed *APIError along with a Response
 // whose Body holds the (bounded) error payload. Unlike Invoke, Stream does not
 // apply WithRequestTimeout; a streaming caller controls cancellation through ctx.
-func (c *Client) Stream(ctx context.Context, m HTTPMethod, s Service, relURL string, body any, opts ...ReqOption) (io.ReadCloser, FullResponse, error) {
+func (c *Client) Stream(ctx context.Context, m HTTPMethod, s Service, relURL string, body any, opts ...ReqOption) (io.ReadCloser, Response, error) {
 	if c.isClosed() {
-		return nil, FullResponse{}, ErrClosed
+		return nil, Response{}, ErrClosed
 	}
 	rc, err := applyReqOptions(opts...)
 	if err != nil {
-		return nil, FullResponse{}, err
+		return nil, Response{}, err
 	}
 	newReq := func() (*http.Request, error) {
 		reader, contentType, err := encodeBody(body)
@@ -43,9 +43,9 @@ func (c *Client) Stream(ctx context.Context, m HTTPMethod, s Service, relURL str
 	}
 	resp, err := c.send(ctx, serverTrust, newReq, bodyReplayable(body))
 	if err != nil {
-		return nil, FullResponse{}, err
+		return nil, Response{}, err
 	}
-	full := FullResponse{
+	full := Response{
 		StatusCode: resp.StatusCode,
 		Headers:    resp.Header,
 		RequestID:  extractRequestID(resp.Header),
@@ -62,13 +62,13 @@ func (c *Client) Stream(ctx context.Context, m HTTPMethod, s Service, relURL str
 // Upload sends the contents of r as an application/octet-stream POST body without
 // buffering it, and returns the (fully read) response. The content type may be
 // overridden with WithHeader.
-func (c *Client) Upload(ctx context.Context, s Service, relURL string, r io.Reader, opts ...ReqOption) (FullResponse, error) {
+func (c *Client) Upload(ctx context.Context, s Service, relURL string, r io.Reader, opts ...ReqOption) (Response, error) {
 	if c.isClosed() {
-		return FullResponse{}, ErrClosed
+		return Response{}, ErrClosed
 	}
 	rc, err := applyReqOptions(opts...)
 	if err != nil {
-		return FullResponse{}, err
+		return Response{}, err
 	}
 	if rc.timeout > 0 {
 		var cancel context.CancelFunc
@@ -80,15 +80,15 @@ func (c *Client) Upload(ctx context.Context, s Service, relURL string, r io.Read
 	}
 	resp, err := c.send(ctx, serverTrust, newReq, false)
 	if err != nil {
-		return FullResponse{}, err
+		return Response{}, err
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return FullResponse{}, &TransportError{Op: "read-body", Err: sanitizeError(err)}
+		return Response{}, &TransportError{Op: "read-body", Err: sanitizeError(err)}
 	}
-	full := FullResponse{
+	full := Response{
 		StatusCode: resp.StatusCode,
 		Headers:    resp.Header,
 		Body:       data,
@@ -101,17 +101,17 @@ func (c *Client) Upload(ctx context.Context, s Service, relURL string, r io.Read
 }
 
 // Download performs a GET and streams the response body to w, returning a
-// FullResponse that carries the status, headers, and request id but a nil Body
+// Response that carries the status, headers, and request id but a nil Body
 // (the payload went to w). On a non-2xx status the bounded error payload is read
-// into FullResponse.Body and returned with a typed *APIError. The default Accept
+// into Response.Body and returned with a typed *APIError. The default Accept
 // is application/octet-stream; override it with WithAccept.
-func (c *Client) Download(ctx context.Context, s Service, relURL string, w io.Writer, opts ...ReqOption) (FullResponse, error) {
+func (c *Client) Download(ctx context.Context, s Service, relURL string, w io.Writer, opts ...ReqOption) (Response, error) {
 	if c.isClosed() {
-		return FullResponse{}, ErrClosed
+		return Response{}, ErrClosed
 	}
 	rc, err := applyReqOptions(opts...)
 	if err != nil {
-		return FullResponse{}, err
+		return Response{}, err
 	}
 	if rc.accept == "" {
 		rc.accept = "application/octet-stream"
@@ -121,11 +121,11 @@ func (c *Client) Download(ctx context.Context, s Service, relURL string, w io.Wr
 	}
 	resp, err := c.send(ctx, serverTrust, newReq, true)
 	if err != nil {
-		return FullResponse{}, err
+		return Response{}, err
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	full := FullResponse{
+	full := Response{
 		StatusCode: resp.StatusCode,
 		Headers:    resp.Header,
 		RequestID:  extractRequestID(resp.Header),

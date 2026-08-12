@@ -50,7 +50,7 @@ defer a2a.Close()
 ```go
 func (a *A2AContext) RetrievePassword(ctx, apiKey Secret) (Secret, error)
 func (a *A2AContext) RetrievePrivateKey(ctx, apiKey Secret, format KeyFormat) (Secret, error)
-func (a *A2AContext) RetrieveAPIKeySecret(ctx, apiKey Secret) ([]APIKeySecret, error)
+func (a *A2AContext) RetrieveAPIKey(ctx, apiKey Secret) ([]APIKey, error)
 ```
 
 - Every credential is returned inside a `Secret`. `RetrievePassword` returns an
@@ -58,7 +58,7 @@ func (a *A2AContext) RetrieveAPIKeySecret(ctx, apiKey Secret) ([]APIKeySecret, e
 - `KeyFormat` selects the encoding; an empty value means `KeyFormatOpenSSH`.
   Values: `KeyFormatOpenSSH` (`"OpenSsh"`), `KeyFormatSSH2` (`"Ssh2"`),
   `KeyFormatPuTTY` (`"Putty"`) — PascalCase to match the wire.
-- `APIKeySecret` carries `ID, Name, Description, ClientID, ClientSecret Secret,
+- `APIKey` carries `ID, Name, Description, ClientID, ClientSecret Secret,
   ClientSecretID`; the appliance returns one entry per configured API key. Only
   `ClientSecret` is wrapped as a `Secret`; the rest is non-sensitive metadata.
 
