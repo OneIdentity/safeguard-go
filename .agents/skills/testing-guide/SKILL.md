@@ -20,4 +20,8 @@ Live-appliance e2e is the authoritative proof that a feature works. Fake-server 
 - Unit tests use `httptest.Server`, fake TLS/WebSocket servers, table-driven cases, and `package safeguard_test` for cross-package coverage.
 - Fuzz the SignalR frame parser for coalesced records, record separators, oversized frames, and malformed input.
 - Run `go test -race ./...` for refresh/logout/401/event concurrency paths.
-- Integration tests skip when `SPP_HOST` is unset, provision/cleanup resources with bootstrap credentials, and handle ROG-disabled appliances without false failures.
+- Live tests skip when `SPP_HOST` is unset, provision/cleanup resources with bootstrap credentials, and handle ROG-disabled appliances without false failures.
+
+## CI vs. local
+
+CI runs only hermetic checks (build, format, vet, lint, race-enabled unit tests); it never runs the live tests because no appliance is reachable from the hosted agents. Running the live suite is therefore a **local developer responsibility** and a recommended part of validating any change to an auth flow, the transport/refresh/token lifecycle, A2A, or events — run `go test ./...` with `SPP_HOST` set against a lab appliance and confirm it is green before considering the change done.

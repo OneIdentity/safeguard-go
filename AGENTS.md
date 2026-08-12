@@ -30,9 +30,11 @@ The root package holds the entire public surface: `Client`, credential construct
 | Vet | `go vet ./...` |
 | Format check | `gofmt -w` for edits; CI checks `gofmt -l .` is empty |
 | Lint | `golangci-lint run` |
-| Live/integration tests | `go test ./...` with `SPP_HOST` and related secrets set |
+| Live tests (local) | `go test ./...` with `SPP_HOST` and related env vars set |
 
 Live-appliance tests live in-package alongside unit tests and **skip** (never fail) when `SPP_HOST` is unset, so `go test ./...` stays hermetic by default. The `internal/livetest` harness provisions and cleans up its own Safeguard resources from bootstrap/admin credentials. The reference appliance has the Resource Owner Grant disabled, so PKCE-headless is the primary automation login. **Live e2e against a running appliance is the standard of proof** — see the `testing-guide` skill.
+
+**Running the live tests locally is a recommended part of validating a code change**, not just a pre-release step. Whenever a change touches an auth flow, the transport/refresh/token lifecycle, A2A, or events, run the live suite against a lab appliance (for example `SPP_HOST=spp1.dan.laptop SPP_INSECURE=1 go test ./...`) and confirm it is green before considering the change done. Agents working in this repo should proactively recommend — and, when an appliance is reachable, run — the live tests as part of that validation. CI cannot do this (no appliance is reachable from the hosted agents), so this responsibility lives with the developer and the agent, not the pipeline.
 
 ## Coding conventions
 
@@ -48,7 +50,7 @@ Live-appliance tests live in-package alongside unit tests and **skip** (never fa
 
 ## CI/CD
 
-Azure Pipelines is the CI system. PR validation runs `go build`, the `gofmt -l` gate, `go vet`, `golangci-lint`, and race-enabled unit tests. Merge/tag validation may run live-appliance integration tests with pipeline secrets that are never exposed to fork PRs, logs, or artifacts. See the `build-and-release` skill for pipeline, versioning, and release details.
+Azure Pipelines is the CI system. PR/CI validation runs `go build`, the `gofmt -l` gate, `go vet`, `golangci-lint`, and race-enabled unit tests. It is fully hermetic: the live-appliance tests skip when `SPP_HOST` is unset, so they never run in CI (no appliance is reachable from the hosted agents). Run the live tests locally against a lab appliance as a pre-release check. See the `build-and-release` skill for pipeline, versioning, and release details.
 
 ## Security
 

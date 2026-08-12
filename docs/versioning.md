@@ -10,4 +10,4 @@
 
 ## Release mechanics
 
-Release builds are driven by Git tags (`vMAJOR.MINOR.PATCH`). Azure Pipelines validates build, format, vet, lint, unit tests, and live-appliance integration tests before a release is published.
+Release builds are driven by Git tags (`vMAJOR.MINOR.PATCH`). Azure Pipelines validates build, format, vet, lint, and race-enabled unit tests — the hermetic checks that need no appliance. Live-appliance end-to-end tests are **not** run in CI (no appliance is reachable from the hosted agents); run them locally against a lab appliance as a pre-release check before tagging.

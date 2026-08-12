@@ -3,8 +3,8 @@ name: build-and-release
 description: >-
   Use when running or changing CI, linting, module/dependency policy, the
   Azure Pipelines templates, or release/versioning. Covers the exact local and
-  pipeline commands, the golangci-lint configuration, semantic-import
-  versioning, and integration-test secret handling.
+  pipeline commands, the golangci-lint configuration, and semantic-import
+  versioning.
 ---
 
 # Build and Release
@@ -25,7 +25,14 @@ dependencies casually).
 | Format (fix) | `gofmt -w <files>` |
 | Format (check) | `gofmt -l .` must print nothing |
 | Lint | `golangci-lint run` |
-| Integration | `go test -tags=integration ./...` with `SPP_HOST` etc. set |
+| Live tests (local) | `go test ./...` with `SPP_HOST` etc. set (see `testing-guide`) |
+
+Running the live-appliance tests locally is a recommended part of validating a
+code change — not just a pre-release step. When a change touches an auth flow,
+the transport/refresh/token lifecycle, A2A, or events, run the live suite
+against a lab appliance and confirm it is green before calling the change done.
+CI cannot do this (see below), so the responsibility lives with the developer
+and the agent.
 
 **Windows gotcha:** files often land with CRLF; `gofmt -l` flags them. Normalize
 to LF before committing (e.g. read the file, replace `\r\n` with `\n`, write it
@@ -39,12 +46,13 @@ back).
   `go build ./...` → `gofmt -l .` gate (fails if any file listed) → `go vet
   ./...` → install `golangci-lint` **v1.64.8** and `golangci-lint run` →
   `go test -race ./...`.
-- **`go-integration-job.yml`** — runs `go test -race -tags=integration ./...`
-  only when `SPP_HOST` is set; otherwise it skips cleanly. Secrets
-  (`SPP_HOST`, `SPP_BOOTSTRAP_USER`, `SPP_BOOTSTRAP_PASSWORD`, `SPP_CA_BUNDLE`,
-  and future `SPP_A2A_*`) come from protected variable groups / Key Vault.
-- **`global-variables.yml`** — `GoVersion=1.21.x`; `isTagBuild` is true when the
-  build source branch starts with `refs/tags/`.
+- **`global-variables.yml`** — `GoVersion=1.21.x`.
+
+CI is intentionally hermetic: it runs only what can be checked without a
+Safeguard appliance. There is no live-appliance CI job — no appliance is
+reachable from the hosted agents. The live tests skip when `SPP_HOST` is unset,
+so `go test -race ./...` stays green in CI; run them locally instead (see the
+`testing-guide` skill).
 
 Keep the local commands and the pipeline steps in lockstep: if you add a check
 locally, add it to `go-ci-job.yml`, and vice versa.
@@ -77,12 +85,13 @@ Every `.go` file also carries the 13-line Apache 2.0 license header.
 
 - Follows Go **semantic-import versioning**: `v0.x` prereleases while the SDK is
   pre-GA, `v1.0.0` at GA, and a `/v2` module path suffix for a breaking major.
-- Releases are **tag-driven** (`isTagBuild` gates release/integration stages).
-  After tagging, verify the version is live on `pkg.go.dev` and the module proxy
-  before any downstream (e.g. a CSI provider) pins the exact tag.
-- Merge/tag validation may run the live-appliance integration tests with
-  pipeline secrets; those secrets are **never** exposed to fork PRs, logs, or
-  artifacts.
+- Releases are **tag-driven** (a `vMAJOR.MINOR.PATCH` tag triggers the hermetic
+  validation pipeline). After tagging, verify the version is live on
+  `pkg.go.dev` and the module proxy before any downstream (e.g. a CSI provider)
+  pins the exact tag.
+- CI validation before a release is hermetic (build, format, vet, lint,
+  race-enabled unit tests). Run the live-appliance tests **locally** against a
+  lab appliance as a pre-release check — CI cannot reach an appliance.
 
 ## Commit / PR conventions
 
