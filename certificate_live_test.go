@@ -86,3 +86,55 @@ func TestLiveCertificateConnect(t *testing.T) {
 		t.Fatalf("Get Me after refresh: %v", err)
 	}
 }
+
+// TestLiveCertificateConnectEncryptedKey proves the Certificate credential with
+// an encrypted PKCS#8 private key. It reuses the same certificate as
+// TestLiveCertificateConnect but supplies the matching key in its encrypted
+// (PBES2: AES-256-CBC, PBKDF2-HMAC-SHA256) form together with its password, so
+// the whole path -- PEM decode, PKCS#8 decrypt, key/leaf match, and mutual-TLS
+// login -- is exercised against a real appliance.
+func TestLiveCertificateConnectEncryptedKey(t *testing.T) {
+	host := livetest.Host(t)
+
+	certPEM, err := os.ReadFile("testdata/CERTS/user-cert.pem")
+	if err != nil {
+		t.Fatalf("read test certificate: %v", err)
+	}
+	encKeyPEM, err := os.ReadFile("testdata/CERTS/user-key-encrypted.pem")
+	if err != nil {
+		t.Fatalf("read encrypted test key: %v", err)
+	}
+
+	adminCtx, adminCancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer adminCancel()
+	admin := livetest.AdminClient(adminCtx, t)
+	defer func() { _ = admin.Close() }()
+
+	userName, _, cleanup := livetest.ProvisionCertificateUser(adminCtx, t, admin, certPEM)
+	defer cleanup()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	password := safeguard.NewSecretString("sg-live-test-pw")
+	client, err := safeguard.Connect(ctx, host,
+		safeguard.Certificate(certPEM, password, safeguard.WithPrivateKeyPEM(encKeyPEM)),
+		livetest.Options(t, host)...,
+	)
+	if err != nil {
+		t.Fatalf("Connect with encrypted-key Certificate against %s: %v", host, err)
+	}
+	defer func() { _ = client.Close() }()
+
+	me, err := client.Get(ctx, safeguard.Core, "Me")
+	if err != nil {
+		t.Fatalf("authenticated Get Me: %v", err)
+	}
+	var identity struct{ Name string }
+	if err := json.Unmarshal(me.Body, &identity); err != nil {
+		t.Fatalf("decode Me: %v", err)
+	}
+	if identity.Name != userName {
+		t.Errorf("authenticated as %q, want the provisioned certificate user %q", identity.Name, userName)
+	}
+}
