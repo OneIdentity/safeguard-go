@@ -29,6 +29,21 @@ updates:
       - dependency-name: "*"
         update-types:
           - "version-update:semver-major"
+      # Hold the module's Go directive at the supported 1.21 floor. Newer
+      # golang.org/x/crypto minors (e.g. 0.35.0) and coder/websocket patches
+      # (1.8.14+) raise their own `go` directive to 1.23+, which `go mod tidy`
+      # would propagate into our go.mod and break the 1.21 floor. The SDK only
+      # uses x/crypto/pbkdf2 and x/crypto/scrypt (not the ssh package) and has
+      # no open security advisories, so holding these is safe. Revisit these
+      # pins if we intentionally raise the Go floor or a security advisory
+      # requires a newer version.
+      - dependency-name: "golang.org/x/crypto"
+        update-types:
+          - "version-update:semver-minor"
+      - dependency-name: "github.com/coder/websocket"
+        update-types:
+          - "version-update:semver-patch"
+          - "version-update:semver-minor"
 
   - package-ecosystem: "github-actions"
     directory: "/"
