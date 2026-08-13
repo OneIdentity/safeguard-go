@@ -1,0 +1,14 @@
+name: "safeguard-go CodeQL config"
+
+# safeguard-go exposes a `WithInsecureTLS` connection option that sets
+# `InsecureSkipVerify: true` on the underlying TLS config. This is an
+# intentional, documented, caller-controlled capability for bootstrap,
+# development, and test against appliances that do not yet have a
+# CA-signed certificate installed (e.g. brand-new or self-signed test
+# appliances). TLS is secure by default; a caller must explicitly opt
+# in. Because this pattern is deliberate and accepted for this
+# repository, the `go/disabled-certificate-check` query is excluded
+# from code scanning.
+query-filters:
+  - exclude:
+      id: go/disabled-certificate-check
