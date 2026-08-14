@@ -67,7 +67,7 @@ func newClient(host string, opts ...Option) (*Client, error) {
 	c := &Client{
 		host:       host,
 		apiVersion: cfg.apiVersion,
-		transports: newTransportSet(tlsConfig, cfg.timeouts),
+		transports: newTransportSet(tlsConfig, cfg.timeouts, cfg.clientCertMaxTLS()),
 		logger:     cfg.logger,
 	}
 	c.token.Store(&tokenState{epoch: 1, anonymous: true})
