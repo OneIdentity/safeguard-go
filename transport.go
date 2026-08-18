@@ -104,15 +104,27 @@ type transportSet struct {
 	clients     map[tlsIdentity]*http.Client
 	wsClients   map[tlsIdentity]*http.Client
 	closed      bool
+	// clientCertMaxTLS, when non-zero, caps the maximum TLS version negotiated
+	// on the clientCert transport (certificate login, A2A) without affecting the
+	// serverTrust transport. It defaults to TLS 1.2 so post-handshake
+	// certificate authentication keeps working on the appliance Standard binding
+	// (Go's TLS stack cannot answer a TLS 1.3 post-handshake CertificateRequest);
+	// it is left zero when the caller expresses an explicit TLS version
+	// preference, so WithMin/MaxTLSVersion opts back into higher versions for the
+	// appliance Cert SNI hostname.
+	clientCertMaxTLS uint16
 }
 
 // newTransportSet returns a transportSet using tlsConfig and timeouts.
-func newTransportSet(tlsConfig *tls.Config, timeouts Timeouts) *transportSet {
+// clientCertMaxTLS optionally caps the clientCert transport's maximum TLS
+// version (0 means no additional cap beyond tlsConfig).
+func newTransportSet(tlsConfig *tls.Config, timeouts Timeouts, clientCertMaxTLS uint16) *transportSet {
 	return &transportSet{
-		tlsConfig: tlsConfig,
-		timeouts:  timeouts.orDefault(),
-		clients:   make(map[tlsIdentity]*http.Client),
-		wsClients: make(map[tlsIdentity]*http.Client),
+		tlsConfig:        tlsConfig,
+		timeouts:         timeouts.orDefault(),
+		clientCertMaxTLS: clientCertMaxTLS,
+		clients:          make(map[tlsIdentity]*http.Client),
+		wsClients:        make(map[tlsIdentity]*http.Client),
 	}
 }
 
@@ -143,6 +155,11 @@ func (ts *transportSet) client(id tlsIdentity) (*http.Client, error) {
 		// authentication over HTTP/2 (it responds HTTP_1_1_REQUIRED), so this
 		// transport must offer only HTTP/1.1 during ALPN.
 		tc.NextProtos = []string{"http/1.1"}
+		// Cap the negotiated TLS version for certificate auth (default TLS 1.2)
+		// unless the caller opted into a higher version; see clientCertMaxTLS.
+		if ts.clientCertMaxTLS != 0 {
+			tc.MaxVersion = ts.clientCertMaxTLS
+		}
 	}
 
 	tr := &http.Transport{
@@ -201,6 +218,11 @@ func (ts *transportSet) websocketClient(id tlsIdentity) (*http.Client, error) {
 		// Permit free client renegotiation only on the client-certificate
 		// transport, matching the API pool above.
 		tc.Renegotiation = tls.RenegotiateFreelyAsClient
+		// Cap the negotiated TLS version for certificate auth (default TLS 1.2)
+		// unless the caller opted into a higher version; see clientCertMaxTLS.
+		if ts.clientCertMaxTLS != 0 {
+			tc.MaxVersion = ts.clientCertMaxTLS
+		}
 	}
 
 	tr := &http.Transport{

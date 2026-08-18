@@ -69,6 +69,8 @@ type clientConfig struct {
 	caBundle      []byte
 	certValidator ServerCertValidator
 	insecure      bool
+	minTLS        uint16 // 0 means the secure default (TLS 1.2)
+	maxTLS        uint16 // 0 means the crypto/tls default maximum
 }
 
 // defaultClientConfig returns a clientConfig populated with defaults.
