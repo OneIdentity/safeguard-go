@@ -117,16 +117,26 @@ import (
     "github.com/OneIdentity/safeguard-go"
 )
 
-// Require TLS 1.3 (fail closed against anything lower, e.g. to enforce it on 9.0)
+// Require TLS 1.3 on the Standard host (fail closed against anything lower).
+// This enforces 1.3 for password/token/PKCE auth; certificate and A2A auth
+// need the Cert SNI host instead — see the third example below.
 client, err := safeguard.Connect(ctx, "safeguard.sample.corp", cred,
     safeguard.WithMinTLSVersion(tls.VersionTLS13))
 
 // Pin the connection to TLS 1.2 (interim, for environments not ready for 1.3)
 client, err = safeguard.Connect(ctx, "safeguard.sample.corp", cred,
     safeguard.WithMaxTLSVersion(tls.VersionTLS12))
+
+// Certificate/A2A auth over TLS 1.3: connect to the appliance Cert SNI
+// hostname (NOT the Standard host, which caps cert auth at TLS 1.2 and would
+// fail closed here). Setting a bound lifts the automatic cert-transport cap;
+// the SNI binding requests the client certificate in-handshake, which Go can
+// answer at TLS 1.3.
+client, err = safeguard.Connect(ctx, "spp-tls13.sample.corp", cred,
+    safeguard.WithMinTLSVersion(tls.VersionTLS13))
 ```
 
-Setting **either** bound turns off the automatic TLS 1.2 cap on the certificate transport, putting you fully in control. That is the opt-in for **certificate/A2A auth over TLS 1.3**: target the appliance **Cert SNI hostname** (where the certificate is requested in-handshake) and set `WithMinTLSVersion(tls.VersionTLS13)`. A maximum lower than the minimum is rejected at connect time, and lowering the minimum below TLS 1.2 is a discouraged escape hatch for legacy interoperability that should never be used in production.
+Setting **either** bound turns off the automatic TLS 1.2 cap on the certificate transport, putting you fully in control. This is what enables **certificate and A2A authentication over TLS 1.3**, but it only works against the appliance **Cert SNI hostname** — a binding that requests the client certificate *during* the handshake, which Go's TLS stack can answer at TLS 1.3. Pointing `WithMinTLSVersion(tls.VersionTLS13)` at the **Standard host** instead (as in the first example above) makes certificate and A2A auth **fail closed** with `60094 Authorization is denied`, because that binding still relies on the post-handshake certificate request Go only answers at TLS 1.2. Password, token, and PKCE auth negotiate TLS 1.3 on either host. A maximum lower than the minimum is rejected at connect time, and lowering the minimum below TLS 1.2 is a discouraged escape hatch for legacy interoperability that should never be used in production.
 
 The default (no options) negotiates the highest mutually supported version and works against both 8.x (TLS 1.2 ceiling) and 9.0 (TLS 1.3) with no flags. Requiring TLS 1.3 against an appliance that tops out at TLS 1.2 (such as SPP 8.x) fails the handshake by design rather than silently downgrading. Server-certificate **trust** is configured separately with `WithCABundle`, `WithServerCertValidator`, and the bootstrap-only `WithInsecureTLS`.
 
