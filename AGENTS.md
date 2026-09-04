@@ -46,6 +46,7 @@ Live-appliance tests live in-package alongside unit tests and **skip** (never fa
 - Model errors as typed Go errors that work with `errors.Is`/`errors.As` (`APIError` and its 401/403/404 specializations, `TransportError`, sentinel `Err*` values).
 - Protect secrets with the `Secret` type. Never log, stringify, serialize, or commit credentials, tokens, certificate private keys, API keys, or retrieved passwords. `APIError.Error()` never includes the raw response body.
 - TLS is secure by default. `WithInsecureTLS` is only for bootstrap/dev/test and must stay loud in docs and tests.
+- TLS version is a `uint16` passthrough to `crypto/tls` via `WithMinTLSVersion`/`WithMaxTLSVersion` (future-proof, no enum to age). The default is hybrid per-transport: TLS 1.2 floor everywhere, `serverTrust` open to 1.3, but the `clientCert` transport (certificate login, A2A) is **capped at 1.2** so post-handshake cert-auth keeps working on the 9.0 Standard binding (Go has no TLS 1.3 post-handshake client auth). Setting either option lifts the cap for TLS 1.3 cert-auth against the appliance Cert SNI hostname. See the api-patterns/architecture/a2a-workflow skills.
 - Stay Go 1.21-compatible (no range-over-func iterators). Do not add dependencies casually.
 
 ## CI/CD

@@ -66,7 +66,7 @@ func TestBuildHTTPRequest(t *testing.T) {
 }
 
 func TestTransportSetClientAxesAndClose(t *testing.T) {
-	ts := newTransportSet(&tls.Config{MinVersion: tls.VersionTLS12}, Timeouts{})
+	ts := newTransportSet(&tls.Config{MinVersion: tls.VersionTLS12}, Timeouts{}, 0)
 	_, err := ts.client(clientCert)
 	if !errors.Is(err, errNoClientCert) {
 		t.Fatalf("client(clientCert) error = %v, want errNoClientCert", err)

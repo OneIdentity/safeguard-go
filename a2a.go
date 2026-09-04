@@ -114,7 +114,7 @@ func NewA2AContext(host string, certPEM []byte, password Secret, opts ...A2AOpti
 	if err != nil {
 		return nil, err
 	}
-	ts := newTransportSet(tlsConfig, cfg.conn.timeouts)
+	ts := newTransportSet(tlsConfig, cfg.conn.timeouts, cfg.conn.clientCertMaxTLS())
 	ts.setClientCerts([]tls.Certificate{cert})
 	return &A2AContext{
 		host:       host,

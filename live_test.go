@@ -151,7 +151,18 @@ func TestLiveTLSModes(t *testing.T) {
 		assertLiveStatusOK(t, client)
 	})
 
-	t.Run("default system trust fails", func(t *testing.T) {
+	t.Run("default system trust", func(t *testing.T) {
+		// With no CA bundle, insecure override, or validator, the client verifies
+		// the appliance certificate against the operating system trust store. The
+		// correct outcome depends on whether that store trusts the appliance chain,
+		// which varies by host: an appliance whose certificate chains to an
+		// enterprise CA installed on this machine is trusted, while a self-signed
+		// appliance is not. Assert against the same verdict the OS itself reaches
+		// for this appliance rather than assuming the certificate is untrusted, so
+		// the test proves the SDK connects when the chain is trusted and fails
+		// closed with a transport error when it is not.
+		trusted := appliancePassesDefaultTrust(t, host)
+
 		client, err := newClient(host)
 		if err != nil {
 			t.Fatalf("newClient default TLS: %v", err)
@@ -161,8 +172,16 @@ func TestLiveTLSModes(t *testing.T) {
 		ctx, cancel := liveContext(t)
 		defer cancel()
 		_, err = client.Get(ctx, Notification, "Status")
+
+		if trusted {
+			if err != nil {
+				t.Fatalf("Get with default system trust error = %v, want success (the appliance chain is trusted by this host's system store)", err)
+			}
+			return
+		}
+
 		if err == nil {
-			t.Fatal("Get with default system trust error = nil, want error")
+			t.Fatal("Get with default system trust error = nil, want error (the appliance chain is not trusted by this host's system store)")
 		}
 		var apiErr *APIError
 		if errors.As(err, &apiErr) {

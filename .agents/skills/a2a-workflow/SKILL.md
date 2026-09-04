@@ -159,6 +159,26 @@ the event-workflow skill for handler registration and lifecycle.
 | `GetRetrievableAccounts` | client certificate | **certificate only** (no API key) |
 | A2A events | client certificate | per-account API key |
 
+## TLS 1.3 and the Cert SNI hostname
+
+A2A is entirely certificate-authenticated, so the TLS 1.3 post-handshake
+limitation applies to **every** A2A operation. On Safeguard 9.0 (which enables
+TLS 1.3), A2A over TLS 1.3 fails on the **Standard binding** with
+`60094 Authorization is denied`, because SPP requests the client certificate
+*after* the handshake and Go's TLS stack never answers a TLS 1.3 post-handshake
+`CertificateRequest` (RFC 8446 §4.6.2). This is a Go platform limitation, not an
+SDK bug — no option makes post-handshake client auth work.
+
+- **Default (no version options): A2A works against 9.0 with no configuration.**
+  The `clientCert` transport that A2A rides is capped at TLS 1.2 by default (see
+  the api-patterns and architecture skills), so the certificate request arrives
+  via TLS 1.2 renegotiation, which Go handles.
+- **TLS 1.3 A2A:** connect to the appliance **Cert SNI hostname**, where the
+  certificate is requested in-handshake, and opt in with
+  `WithMaxTLSVersion(tls.VersionTLS13)` (or `WithMinTLSVersion(tls.VersionTLS13)`
+  to require it). Either option lifts the 1.2 cap.
+- Requests stay on **HTTP/1.1** (HTTP/2 disallows the post-handshake request).
+
 ## Live coverage
 
 `a2a_live_test.go` proves retrieve, set, broker, bogus-key rejection, and

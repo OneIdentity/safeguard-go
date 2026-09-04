@@ -96,6 +96,50 @@ See [samples/README.md](samples/README.md) for the full list and the shared flag
 
 The SDK targets Safeguard API **v4** by default for Safeguard 7.0 and later. Override it per client with `WithAPIVersion` or per request with `WithAPIVersionOverride` (for example `"v3"` for legacy compatibility); the SDK does not auto-detect the API version.
 
+## TLS versions and certificate authentication
+
+Safeguard for Privileged Passwords **9.0 enables TLS 1.3**. `safeguard-go` works against both 8.x and 9.0 with no configuration changes and is secure by default: every transport negotiates **TLS 1.2 or higher**.
+
+### Default: hybrid per transport
+
+The negotiated protocol window defaults to a **TLS 1.2 floor** on every transport, with the ceiling chosen per transport. Password, token, and PKCE traffic (the server-trust transport) is free to negotiate **TLS 1.3** where the appliance supports it, while certificate login and A2A (the client-certificate transport) are **capped at TLS 1.2**.
+
+Certificate authentication requires the client to present its certificate in response to a request the appliance makes *after* the handshake. Go's TLS stack answers that only at TLS 1.2 (via renegotiation); it neither offers the TLS 1.3 `post_handshake_auth` extension nor answers a post-handshake `CertificateRequest`, so a TLS 1.3 certificate-auth attempt against the appliance Standard binding fails with `60094 Authorization is denied`. Capping the certificate transport at TLS 1.2 keeps certificate and A2A auth working out of the box while everything else still gets TLS 1.3. That transport also uses **HTTP/1.1** (the HTTP/2 upgrade is disabled), because HTTP/2 disallows the post-handshake certificate exchange.
+
+### Pinning the TLS version (opt-in)
+
+`WithMinTLSVersion` and `WithMaxTLSVersion` take a `crypto/tls` version constant and are passed to `Connect`. Values pass straight through to `crypto/tls`, so protocol versions added in the future need no SDK change.
+
+```go
+import (
+    "crypto/tls"
+
+    "github.com/OneIdentity/safeguard-go"
+)
+
+// Require TLS 1.3 on the Standard host (fail closed against anything lower).
+// This enforces 1.3 for password/token/PKCE auth; certificate and A2A auth
+// need the Cert SNI host instead — see the third example below.
+client, err := safeguard.Connect(ctx, "safeguard.sample.corp", cred,
+    safeguard.WithMinTLSVersion(tls.VersionTLS13))
+
+// Pin the connection to TLS 1.2 (interim, for environments not ready for 1.3)
+client, err = safeguard.Connect(ctx, "safeguard.sample.corp", cred,
+    safeguard.WithMaxTLSVersion(tls.VersionTLS12))
+
+// Certificate/A2A auth over TLS 1.3: connect to the appliance Cert SNI
+// hostname (NOT the Standard host, which caps cert auth at TLS 1.2 and would
+// fail closed here). Setting a bound lifts the automatic cert-transport cap;
+// the SNI binding requests the client certificate in-handshake, which Go can
+// answer at TLS 1.3.
+client, err = safeguard.Connect(ctx, "spp-tls13.sample.corp", cred,
+    safeguard.WithMinTLSVersion(tls.VersionTLS13))
+```
+
+Setting **either** bound turns off the automatic TLS 1.2 cap on the certificate transport, putting you fully in control. This is what enables **certificate and A2A authentication over TLS 1.3**, but it only works against the appliance **Cert SNI hostname** — a binding that requests the client certificate *during* the handshake, which Go's TLS stack can answer at TLS 1.3. Pointing `WithMinTLSVersion(tls.VersionTLS13)` at the **Standard host** instead (as in the first example above) makes certificate and A2A auth **fail closed** with `60094 Authorization is denied`, because that binding still relies on the post-handshake certificate request Go only answers at TLS 1.2. Password, token, and PKCE auth negotiate TLS 1.3 on either host. A maximum lower than the minimum is rejected at connect time, and lowering the minimum below TLS 1.2 is a discouraged escape hatch for legacy interoperability that should never be used in production.
+
+The default (no options) negotiates the highest mutually supported version and works against both 8.x (TLS 1.2 ceiling) and 9.0 (TLS 1.3) with no flags. Requiring TLS 1.3 against an appliance that tops out at TLS 1.2 (such as SPP 8.x) fails the handshake by design rather than silently downgrading. Server-certificate **trust** is configured separately with `WithCABundle`, `WithServerCertValidator`, and the bootstrap-only `WithInsecureTLS`.
+
 ## Support
 
 One Identity open source projects are supported through GitHub issues and the [One Identity Community](https://www.oneidentity.com/community/). Open an issue in this repository to report a bug or request a feature.

@@ -130,6 +130,23 @@ Free client TLS renegotiation is enabled **only** on the client-certificate
 transport (the legacy A2A/RSTS endpoints may request it); the shared server-trust
 transports keep the default `RenegotiateNever`.
 
+The negotiated protocol window is configurable per client via
+`WithMinTLSVersion`/`WithMaxTLSVersion` (`uint16` passthrough to `crypto/tls`, so
+future versions need no SDK change). The default is **hybrid per-transport**: a
+TLS 1.2 floor everywhere, `serverTrust` open to the `crypto/tls` maximum (1.3),
+and the **`clientCert` transport capped at TLS 1.2** (`transportSet.clientCertMaxTLS`,
+resolved by `clientConfig.clientCertMaxTLS`). This is because SPP requests the
+client certificate *after* the handshake, and Go's TLS stack answers that only at
+TLS 1.2 (renegotiation), never the TLS 1.3 post-handshake equivalent — Go's
+client neither offers the `post_handshake_auth` extension nor answers a
+post-handshake `CertificateRequest` (on a 1.3 cert-auth attempt SPP returns
+`60094 Authorization is denied`). So password/token/PKCE get 1.3 by default while
+certificate login and A2A stay on 1.2 and keep working on the Standard binding.
+Setting either version option disables the cap uniformly, which is the opt-in for
+TLS 1.3 certificate/A2A auth against the appliance **Cert SNI hostname** (where
+the certificate is requested in-handshake and Go's existing `tc.Certificates`
+answers it — no other code change needed).
+
 ## Secret boundary
 
 `Secret` is the single type for passwords, tokens, API keys, and retrieved

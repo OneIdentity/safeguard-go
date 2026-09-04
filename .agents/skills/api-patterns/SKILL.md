@@ -150,8 +150,9 @@ set as a request header — that is the point of `ErrReservedHeader`.
 ## Connection options (`Option`)
 
 `WithCABundle([]byte)`, `WithInsecureTLS()`, `WithServerCertValidator(v)`,
-`WithAPIVersion(v)`, `WithHTTPTimeouts(Timeouts{Dial, TLSHandshake,
-ResponseHeader})`, `WithLogger(*slog.Logger)`.
+`WithMinTLSVersion(uint16)`, `WithMaxTLSVersion(uint16)`, `WithAPIVersion(v)`,
+`WithHTTPTimeouts(Timeouts{Dial, TLSHandshake, ResponseHeader})`,
+`WithLogger(*slog.Logger)`.
 
 - **`WithCABundle`** is the secure way to trust a self-signed/privately-issued
   appliance cert. It **replaces** the system trust store for server verification
@@ -163,6 +164,30 @@ ResponseHeader})`, `WithLogger(*slog.Logger)`.
 - **`WithServerCertValidator`** is *additive* — it runs after normal
   verification and can only further restrict trust (parity with .NET's
   `RemoteCertificateValidationCallback`).
+- **`WithMinTLSVersion` / `WithMaxTLSVersion`** set the negotiated TLS version
+  window. Pass `crypto/tls` version constants (`tls.VersionTLS12`,
+  `tls.VersionTLS13`, …); values pass straight through, so future protocol
+  versions need no SDK change. A maximum below the (default or configured)
+  minimum is rejected. Lowering the minimum below TLS 1.2 is an explicit,
+  discouraged escape hatch for legacy interop.
+  - **Hybrid per-transport default.** With no explicit preference, the minimum is
+    TLS 1.2 everywhere, but the two transports differ at the top: the
+    server-trust transport (password/token/PKCE/browser/device-code) is open to
+    the `crypto/tls` maximum (TLS 1.3), while the **client-certificate transport
+    (certificate login, A2A) is capped at TLS 1.2**. This keeps cert-auth working
+    out of the box on the appliance Standard binding, because SPP requests the
+    client certificate *after* the handshake and Go's TLS stack answers that only
+    at TLS 1.2 (renegotiation), never the TLS 1.3 post-handshake equivalent (Go's
+    client neither offers `post_handshake_auth` nor answers a post-handshake
+    `CertificateRequest`; on a 1.3 cert-auth attempt SPP returns
+    `60094 Authorization is denied`).
+  - **Setting either option disables the cap.** Any explicit
+    `WithMinTLSVersion`/`WithMaxTLSVersion` applies uniformly to both transports.
+    That is the opt-in for **TLS 1.3 certificate/A2A auth against the appliance
+    Cert SNI hostname**, where the certificate is requested *in-handshake* and Go
+    presents it normally. Example: `WithMaxTLSVersion(tls.VersionTLS13)` plus the
+    Cert SNI hostname enables 1.3 cert-auth; `WithMinTLSVersion(tls.VersionTLS13)`
+    additionally fails closed below 1.3.
 - No global request timeout exists by design (it would break streams/events);
   use context and `WithRequestTimeout`.
 
